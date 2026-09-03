@@ -1,0 +1,633 @@
+     1→"use client";
+     2→
+     3→/**
+     4→ * WebMCP tool definitions for the Meridian Ledger newsroom.
+     5→ *
+     6→ * These tools are the machine-facing surface of the exact same REST API the
+     7→ * human UI uses, so an external browser agent mutating a story through
+     8→ * `update_story_status` changes the same state a human editor sees — and
+     9→ * vice versa. After every mutating call we emit a `newsroom:data-changed`
+    10→ * window event so the on-page UI refreshes immediately.
+    11→ */
+    12→
+    13→import * as api from "@/lib/newsroom/client";
+    14→import type { ModelContextTool } from "@/types/webmcp";
+    15→import type { StoryDTO } from "@/lib/newsroom/types";
+    16→
+    17→const DATA_CHANGED_EVENT = "newsroom:data-changed";
+    18→
+    19→function notifyDataChanged() {
+    20→  window.dispatchEvent(new CustomEvent(DATA_CHANGED_EVENT));
+    21→}
+    22→
+    23→/** Compact story projection used in list responses to keep outputs small. */
+    24→function storySummary(s: Awaited<ReturnType<typeof api.fetchStories>>["stories"][number]) {
+    25→  return {
+    26→    id: s.id,
+    27→    slug: s.slug,
+    28→    title: s.title,
+    29→    status: s.status,
+    30→    desk: s.desk,
+    31→    author: s.author,
+    32→    assignee: s.assignee,
+    33→    priority: s.priority,
+    34→    wordCount: s.wordCount,
+    35→    mediaCount: s.media.length,
+    36→    hasExpiredMedia: s.media.some((m) => m.media.rights.status === "EXPIRED"),
+    37→    handoffCount: s.handoffCount,
+    38→    updatedAt: s.updatedAt,
+    39→  };
+    40→}
+    41→
+    42→function mediaSummary(m: Awaited<ReturnType<typeof api.fetchMedia>>["media"][number]) {
+    43→  return {
+    44→    id: m.id,
+    45→    fileName: m.fileName,
+    46→    url: m.url,
+    47→    title: m.title,
+    48→    photographer: m.photographer,
+    49→    source: m.source,
+    50→    licenseType: m.licenseType,
+    51→    rightsStatus: m.rights.status,
+    52→    expiresAt: m.rights.expiresAt,
+    53→    allowedChannels: m.allowedChannels,
+    54→    webAllowed: m.rights.webAllowed,
+    55→    creditLine: m.creditLine,
+    56→    attachedToCount: m.attachedToCount,
+    57→  };
+    58→}
+    59→
+    60→const ok = (data: Record<string, unknown>) => ({ ok: true as const, ...data });
+    61→const fail = (error: string, extra: Record<string, unknown> = {}) => ({
+    62→  ok: false as const,
+    63→  error,
+    64→  ...extra,
+    65→});
+    66→
+    67→function asString(v: unknown): string | undefined {
+    68→  return typeof v === "string" && v.length > 0 ? v : undefined;
+    69→}
+    70→
+    71→function requireString(input: Record<string, unknown>, key: string): string {
+    72→  const v = input[key];
+    73→  if (typeof v !== "string" || v.trim() === "") {
+    74→    throw new Error(`Missing required string parameter "${key}".`);
+    75→  }
+    76→  return v.trim();
+    77→}
+    78→
+    79→function run<T>(fn: () => Promise<T>): Promise<T> {
+    80→  return fn();
+    81→}
+    82→
+    83→const STORY_STATUS_ENUM = [
+    84→  "DRAFT",
+    85→  "IN_REVIEW",
+    86→  "REVISION_REQUESTED",
+    87→  "APPROVED",
+    88→  "PUBLISHED",
+    89→];
+    90→
+    91→export const NEWSROOM_TOOLS: ModelContextTool[] = [
+    92→  // ----------------------------------------------------------------- stories
+    93→  {
+    94→    name: "find_stories",
+    95→    description:
+    96→      "List newsroom stories with optional filters. Returns id, slug, title, editorial status, desk, author, assignee, word count, media count and whether any attached media has expired rights.",
+    97→    inputSchema: {
+    98→      type: "object",
+    99→      properties: {
+   100→        status: {
+   101→          type: "string",
+   102→          enum: STORY_STATUS_ENUM,
+   103→          description: "Filter by editorial status.",
+   104→        },
+   105→        desk: { type: "string", description: "Filter by desk, e.g. 'City Hall', 'Business', 'Tech', 'Climate', 'Sports', 'Culture'." },
+   106→        assignee: { type: "string", description: "Filter by desk editor assignment (exact name)." },
+   107→        query: { type: "string", description: "Free-text search across title, summary, body and author." },
+   108→        limit: { type: "integer", minimum: 1, maximum: 50, description: "Max stories to return (default 20)." },
+   109→      },
+   110→    },
+   111→    execute: async (input) =>
+   112→      run(async () => {
+   113→        const stories = await api.fetchStories({
+   114→          status: asString(input.status) ?? "any",
+   115→          desk: asString(input.desk) ?? "any",
+   116→          assignee: asString(input.assignee) ?? "any",
+   117→          query: asString(input.query),
+   118→        }).then((r) => r.stories);
+   119→        const limit =
+   120→          typeof input.limit === "number" && input.limit > 0
+   121→            ? Math.min(input.limit, 50)
+   122→            : 20;
+   123→        return ok({
+   124→          count: stories.length,
+   125→          shown: Math.min(stories.length, limit),
+   126→          stories: stories.slice(0, limit).map(storySummary),
+   127→        });
+   128→      }).catch((e: Error) => fail(e.message)),
+   129→  },
+   130→
+   131→  {
+   132→    name: "get_story",
+   133→    description:
+   134→      "Get the full record of a single story: headline, standfirst, body, editorial status, assignment, timestamps and all attached media with their rights status.",
+   135→    inputSchema: {
+   136→      type: "object",
+   137→      properties: {
+   138→        storyId: { type: "string", description: "The story id." },
+   139→        slug: { type: "string", description: "Alternatively, the story slug (used when storyId is not known)." },
+   140→      },
+   141→      required: [],
+   142→    },
+   143→    execute: async (input) =>
+   144→      run(async () => {
+   145→        const storyId = asString(input.storyId);
+   146→        const slug = asString(input.slug);
+   147→        if (!storyId && !slug) {
+   148→          throw new Error("Provide either 'storyId' or 'slug'.");
+   149→        }
+   150→        let story;
+   151→        if (storyId) {
+   152→          story = (await api.fetchStory(storyId)).story;
+   153→        } else {
+   154→          const all = (await api.fetchStories({ query: slug })).stories;
+   155→          story = all.find((s) => s.slug === slug);
+   156→          if (!story) throw new Error(`No story found with slug "${slug}".`);
+   157→        }
+   158→        return ok({ story });
+   159→      }).catch((e: Error) => fail(e.message)),
+   160→  },
+   161→
+   162→  {
+   163→    name: "create_story",
+   164→    description:
+   165→      "Create a new story in Draft status. Provide at least a title; summary, body and a publish deadline are recommended so the story can later pass publication validation.",
+   166→    inputSchema: {
+   167→      type: "object",
+   168→      properties: {
+   169→        title: { type: "string", minLength: 4, description: "Headline (4-140 characters)." },
+   170→        summary: { type: "string", description: "Standfirst/deck summary (30-300 characters for publish readiness)." },
+   171→        body: { type: "string", description: "Full body copy (at least 100 words for publish readiness)." },
+   172→        desk: { type: "string", enum: ["City Hall", "Business", "Tech", "Climate", "Sports", "Culture"] },
+   173→        author: { type: "string", description: "Byline author name. Defaults to 'Newsroom Staff'." },
+   174→        assignee: { type: "string", description: "Desk editor responsible for the story." },
+   175→        priority: { type: "string", enum: ["LOW", "NORMAL", "HIGH", "URGENT"] },
+   176→        scheduledFor: { type: "string", description: "Optional editorial publish deadline (ISO date, e.g. 2025-06-01)." },
+   177→      },
+   178→      required: ["title"],
+   179→    },
+   180→    execute: async (input) =>
+   181→      run(async () => {
+   182→        const story = await import("@/hooks/use-newsroom").then((m) =>
+   183→          m.useNewsroom.getState().createStory({
+   184→            title: requireString(input, "title"),
+   185→            summary: asString(input.summary),
+   186→            body: asString(input.body),
+   187→            desk: asString(input.desk),
+   188→            author: asString(input.author),
+   189→            assignee: asString(input.assignee) ?? null,
+   190→            priority: asString(input.priority),
+   191→            scheduledFor: asString(input.scheduledFor) ?? null,
+   192→          })
+   193→        );
+   194→        notifyDataChanged();
+   195→        return ok({ message: "Story created in Draft status.", storyId: story.id, story });
+   196→      }).catch((e: Error) => fail(e.message)),
+   197→  },
+   198→
+   199→  {
+   200→    name: "duplicate_story",
+   201→    description:
+   202→      "Pitch a follow-up: clone an existing story as a fresh Draft. Copies headline (suffixed with \"(Follow-up)\"), standfirst, body, desk, byline and priority; media, handoff history and the publish deadline start clean. Returns the new story.",
+   203→    inputSchema: {
+   204→      type: "object",
+   205→      properties: {
+   206→        storyId: { type: "string", description: "The id of the story to clone." },
+   207→      },
+   208→      required: ["storyId"],
+   209→    },
+   210→    execute: async (input) =>
+   211→      run(async () => {
+   212→        const storyId = requireString(input, "storyId");
+   213→        const story = await api.duplicateStoryRequest(storyId).then((r) => r.story);
+   214→        notifyDataChanged();
+   215→        return ok({
+   216→          message: `Follow-up story created in Draft status from ${storyId}.`,
+   217→          storyId: story.id,
+   218→          story,
+   219→        });
+   220→      }).catch((e: Error) => fail(e.message)),
+   221→  },
+   222→
+   223→  {
+   224→    name: "update_story",
+   225→    description:
+   226→      "Update editable fields of a story (title, summary, body, desk, assignee, priority, author, scheduledFor deadline). Published stories are locked. If an APPROVED story's copy (title/summary/body) changes, it is automatically reverted to Draft for re-review. All changes are recorded on the story's editorial timeline.",
+   227→    inputSchema: {
+   228→      type: "object",
+   229→      properties: {
+   230→        storyId: { type: "string", description: "The story id." },
+   231→        title: { type: "string", minLength: 4 },
+   232→        summary: { type: "string" },
+   233→        body: { type: "string" },
+   234→        desk: { type: "string", enum: ["City Hall", "Business", "Tech", "Climate", "Sports", "Culture"] },
+   235→        assignee: { type: "string", description: "Desk editor name, or empty string to unassign." },
+   236→        priority: { type: "string", enum: ["LOW", "NORMAL", "HIGH", "URGENT"] },
+   237→        author: { type: "string" },
+   238→        scheduledFor: { type: "string", description: "Editorial publish deadline as ISO date (e.g. 2025-06-01), or empty string to clear." },
+   239→      },
+   240→      required: ["storyId"],
+   241→    },
+   242→    execute: async (input) =>
+   243→      run(async () => {
+   244→        const storyId = requireString(input, "storyId");
+   245→        const { useNewsroom } = await import("@/hooks/use-newsroom");
+   246→        const patch: Record<string, unknown> = {};
+   247→        for (const key of ["title", "summary", "body", "desk", "assignee", "priority", "author", "scheduledFor"]) {
+   248→          if (key in input) {
+   249→            patch[key] =
+   250→              key === "scheduledFor" ? asString(input.scheduledFor) ?? null : input[key];
+   251→          }
+   252→        }
+   253→        if (Object.keys(patch).length === 0) {
+   254→          throw new Error("Provide at least one field to update.");
+   255→        }
+   256→        const story = await useNewsroom.getState().updateStoryFields(storyId, patch);
+   257→        notifyDataChanged();
+   258→        return ok({ message: "Story updated.", story });
+   259→      }).catch((e: Error) => fail(e.message)),
+   260→  },
+   261→
+   262→  {
+   263→    name: "update_story_status",
+   264→    description:
+   265→      "Move a story through the editorial workflow. Allowed transitions: Draft→In Review; In Review→Approved / Revision Requested / Draft; Revision Requested→In Review / Draft; Approved→In Review. Publishing is not allowed here — use prepare_web_handoff + execute_web_handoff.",
+   266→    inputSchema: {
+   267→      type: "object",
+   268→      properties: {
+   269→        storyId: { type: "string" },
+   270→        status: { type: "string", enum: STORY_STATUS_ENUM },
+   271→      },
+   272→      required: ["storyId", "status"],
+   273→    },
+   274→    execute: async (input) =>
+   275→      run(async () => {
+   276→        const storyId = requireString(input, "storyId");
+   277→        const status = requireString(input, "status");
+   278→        const { useNewsroom } = await import("@/hooks/use-newsroom");
+   279→        const story = await useNewsroom.getState().setStoryStatus(storyId, status);
+   280→        notifyDataChanged();
+   281→        return ok({ message: `Story status is now ${story.status}.`, story });
+   282→      }).catch((e: Error) => fail(e.message)),
+   283→  },
+   284→
+   285→  {
+   286→    name: "approve_story",
+   287→    description:
+   288→      "Approve a story that is currently In Review. Only In Review stories can be approved.",
+   289→    inputSchema: {
+   290→      type: "object",
+   291→      properties: { storyId: { type: "string" } },
+   292→      required: ["storyId"],
+   293→    },
+   294→    execute: async (input) =>
+   295→      run(async () => {
+   296→        const storyId = requireString(input, "storyId");
+   297→        const { useNewsroom } = await import("@/hooks/use-newsroom");
+   298→        const story = await useNewsroom.getState().approveStory(storyId);
+   299→        notifyDataChanged();
+   300→        return ok({ message: `Story "${story.title}" approved.`, story });
+   301→      }).catch((e: Error) => fail(e.message)),
+   302→  },
+   303→
+   304→  // ------------------------------------------------------------------- media
+   305→  {
+   306→    name: "search_media",
+   307→    description:
+   308→      "Search the media vault. Filter by free-text query, license type, allowed channel or rights status. rightsStatus \"USABLE\" (default-friendly) returns every asset that can be published today: PERPETUAL or within its license window. Other statuses: VALID (dated license, not near expiry), EXPIRING_SOON, EXPIRED, PERPETUAL.",
+   309→    inputSchema: {
+   310→      type: "object",
+   311→      properties: {
+   312→        query: { type: "string", description: "Free-text search across title, description, photographer and source." },
+   313→        licenseType: {
+   314→          type: "string",
+   315→          enum: ["Staff Original", "Rights-Managed", "Editorial Use Only", "Royalty-Free", "Creative Commons BY"],
+   316→        },
+   317→        channel: { type: "string", enum: ["web", "print", "social", "broadcast"] },
+   318→        rightsStatus: {
+   319→          type: "string",
+   320→          enum: ["USABLE", "VALID", "EXPIRING_SOON", "EXPIRED", "PERPETUAL"],
+   321→          description: "USABLE = publishable today (PERPETUAL or VALID).",
+   322→        },
+   323→        limit: { type: "integer", minimum: 1, maximum: 50 },
+   324→      },
+   325→    },
+   326→    execute: async (input) =>
+   327→      run(async () => {
+   328→        const requested = asString(input.rightsStatus) ?? "any";
+   329→        // "USABLE" is an agent-friendly umbrella: PERPETUAL + VALID. The API
+   330→        // filters on the exact computed status, so fetch unfiltered and apply
+   331→        // the umbrella here.
+   332→        const rightsStatus = requested === "USABLE" ? "any" : requested;
+   333→        const { media } = await api.fetchMedia({
+   334→          query: asString(input.query) ?? "",
+   335→          licenseType: asString(input.licenseType) ?? "any",
+   336→          channel: asString(input.channel) ?? "any",
+   337→          rightsStatus,
+   338→        });
+   339→        const usable =
+   340→          requested === "USABLE"
+   341→            ? media.filter((m) => m.rights.status === "VALID" || m.rights.status === "PERPETUAL")
+   342→            : media;
+   343→        const limit =
+   344→          typeof input.limit === "number" && input.limit > 0
+   345→            ? Math.min(input.limit, 50)
+   346→            : 20;
+   347→        return ok({
+   348→          count: usable.length,
+   349→          shown: Math.min(usable.length, limit),
+   350→          media: usable.slice(0, limit).map(mediaSummary),
+   351→        });
+   352→      }).catch((e: Error) => fail(e.message)),
+   353→  },
+   354→
+   355→  {
+   356→    name: "get_media_metadata",
+   357→    description:
+   358→      "Get full metadata for one media asset: photographer, source, license type and notes, allowed channels, expiry, credit requirements, dimensions and which stories use it.",
+   359→    inputSchema: {
+   360→      type: "object",
+   361→      properties: { mediaId: { type: "string" } },
+   362→      required: ["mediaId"],
+   363→    },
+   364→    execute: async (input) =>
+   365→      run(async () => {
+   366→        const mediaId = requireString(input, "mediaId");
+   367→        const { media } = await api.fetchMediaAsset(mediaId);
+   368→        return ok({ media });
+   369→      }).catch((e: Error) => fail(e.message)),
+   370→  },
+   371→
+   372→  {
+   373→    name: "check_media_rights",
+   374→    description:
+   375→      "Check licensing/rights for web publication. Pass mediaId for a single asset, or storyId to check every asset attached to a story. Reports expired licenses, channel restrictions and missing credits.",
+   376→    inputSchema: {
+   377→      type: "object",
+   378→      properties: {
+   379→        mediaId: { type: "string", description: "Check a single asset." },
+   380→        storyId: { type: "string", description: "Check all assets attached to this story." },
+   381→      },
+   382→      required: [],
+   383→    },
+   384→    execute: async (input) =>
+   385→      run(async () => {
+   386→        const mediaId = asString(input.mediaId);
+   387→        const storyId = asString(input.storyId);
+   388→        if (!mediaId && !storyId) {
+   389→          throw new Error("Provide 'mediaId' or 'storyId'.");
+   390→        }
+   391→        if (mediaId) {
+   392→          const { media } = await api.fetchMediaAsset(mediaId);
+   393→          const problems: string[] = [];
+   394→          if (media.rights.status === "EXPIRED") {
+   395→            problems.push(`License expired on ${media.rights.expiresAt?.slice(0, 10)}`);
+   396→          } else if (media.rights.status === "EXPIRING_SOON") {
+   397→            problems.push(`License expires in ${media.rights.daysUntilExpiry} day(s)`);
+   398→          }
+   399→          if (!media.rights.webAllowed) {
+   400→            problems.push(`Channel "web" not permitted (allowed: ${media.allowedChannels.join(", ") || "none"})`);
+   401→          }
+   402→          if (media.rights.creditRequired && !media.creditLine) {
+   403→            problems.push("Credit required but credit line is empty");
+   404→          }
+   405→          return ok({
+   406→            mediaId,
+   407→            title: media.title,
+   408→            usableForWeb: problems.length === 0,
+   409→            problems,
+   410→            rights: media.rights,
+   411→          });
+   412→        }
+   413→        const { story } = await api.fetchStory(storyId!);
+   414→        const reports = story.media.map((att) => {
+   415→          const r = att.media.rights;
+   416→          const problems: string[] = [];
+   417→          if (r.status === "EXPIRED") problems.push(`License expired on ${r.expiresAt?.slice(0, 10)}`);
+   418→          if (r.status === "EXPIRING_SOON") problems.push(`License expires in ${r.daysUntilExpiry} day(s)`);
+   419→          if (!r.webAllowed) problems.push("Channel \"web\" not permitted");
+   420→          if (r.creditRequired && !att.media.creditLine) problems.push("Credit line missing");
+   421→          return {
+   422→            mediaId: att.media.id,
+   423→            title: att.media.title,
+   424→            isPrimary: att.isPrimary,
+   425→            usableForWeb: problems.length === 0,
+   426→            problems,
+   427→            rights: r,
+   428→          };
+   429→        });
+   430→        return ok({
+   431→          storyId,
+   432→          storyTitle: story.title,
+   433→          allUsableForWeb: reports.every((r) => r.usableForWeb),
+   434→          reports,
+   435→        });
+   436→      }).catch((e: Error) => fail(e.message)),
+   437→  },
+   438→
+   439→  {
+   440→    name: "attach_media_to_story",
+   441→    description:
+   442→      "Attach a media asset to a story, with optional caption and primary (lead image) flag. The first attachment becomes primary automatically.",
+   443→    inputSchema: {
+   444→      type: "object",
+   445→      properties: {
+   446→        storyId: { type: "string" },
+   447→        mediaId: { type: "string" },
+   448→        caption: { type: "string", description: "Editorial caption shown with the image." },
+   449→        isPrimary: { type: "boolean", description: "Mark as the lead image (demotes other primaries)." },
+   450→      },
+   451→      required: ["storyId", "mediaId"],
+   452→    },
+   453→    execute: async (input) =>
+   454→      run(async () => {
+   455→        const storyId = requireString(input, "storyId");
+   456→        const mediaId = requireString(input, "mediaId");
+   457→        const { useNewsroom } = await import("@/hooks/use-newsroom");
+   458→        const story = await useNewsroom.getState().attachMedia(storyId, mediaId, {
+   459→          caption: asString(input.caption) ?? null,
+   460→          isPrimary: input.isPrimary === true,
+   461→        });
+   462→        notifyDataChanged();
+   463→        return ok({ message: "Media attached to story.", story });
+   464→      }).catch((e: Error) => fail(e.message)),
+   465→  },
+   466→
+   467→  {
+   468→    name: "detach_media_from_story",
+   469→    description:
+   470→      "Remove a media attachment from a story. If the removed asset was the primary image, the oldest remaining attachment is promoted.",
+   471→    inputSchema: {
+   472→      type: "object",
+   473→      properties: {
+   474→        storyId: { type: "string" },
+   475→        mediaId: { type: "string" },
+   476→      },
+   477→      required: ["storyId", "mediaId"],
+   478→    },
+   479→    execute: async (input) =>
+   480→      run(async () => {
+   481→        const storyId = requireString(input, "storyId");
+   482→        const mediaId = requireString(input, "mediaId");
+   483→        const { useNewsroom } = await import("@/hooks/use-newsroom");
+   484→        const story = await useNewsroom.getState().detachMedia(storyId, mediaId);
+   485→        notifyDataChanged();
+   486→        return ok({ message: "Media detached from story.", story });
+   487→      }).catch((e: Error) => fail(e.message)),
+   488→  },
+   489→
+   490→  {
+   491→    name: "replace_story_media",
+   492→    description:
+   493→      "Replace an attached media asset in one action (e.g. swap an expired-rights image for a valid one). Detaches the old asset and attaches the new one, preserving caption and lead-image status. Returns the updated story.",
+   494→    inputSchema: {
+   495→      type: "object",
+   496→      properties: {
+   497→        storyId: { type: "string" },
+   498→        oldMediaId: { type: "string", description: "Currently attached asset to remove." },
+   499→        newMediaId: { type: "string", description: "Replacement asset (must not already be attached)." },
+   500→        caption: { type: "string", description: "Optional new caption; omitted keeps the existing caption." },
+   501→      },
+   502→      required: ["storyId", "oldMediaId", "newMediaId"],
+   503→    },
+   504→    execute: async (input) =>
+   505→      run(async () => {
+   506→        const storyId = requireString(input, "storyId");
+   507→        const oldMediaId = requireString(input, "oldMediaId");
+   508→        const newMediaId = requireString(input, "newMediaId");
+   509→        const caption =
+   510→          typeof input.caption === "string" ? input.caption.trim() || null : undefined;
+   511→        const { useNewsroom } = await import("@/hooks/use-newsroom");
+   512→        const story: StoryDTO = await useNewsroom
+   513→          .getState()
+   514→          .replaceMedia(storyId, oldMediaId, newMediaId, caption === undefined ? {} : { caption });
+   515→        notifyDataChanged();
+   516→        return ok({ message: "Media replaced; caption and lead status preserved.", story });
+   517→      }).catch((e: Error) => fail(e.message)),
+   518→  },
+   519→
+   520→  {
+   521→    name: "get_story_history",
+   522→    description:
+   523→      "Get the editorial timeline (audit trail) of a story: creation, status changes, edits, media attachments/replacements, deadline changes and handoffs, each with the actor and timestamp.",
+   524→    inputSchema: {
+   525→      type: "object",
+   526→      properties: { storyId: { type: "string" } },
+   527→      required: ["storyId"],
+   528→    },
+   529→    execute: async (input) =>
+   530→      run(async () => {
+   531→        const storyId = requireString(input, "storyId");
+   532→        const { useNewsroom } = await import("@/hooks/use-newsroom");
+   533→        const events = await useNewsroom.getState().fetchTimeline(storyId);
+   534→        return ok({ storyId, count: events.length, events });
+   535→      }).catch((e: Error) => fail(e.message)),
+   536→  },
+   537→
+   538→  // ----------------------------------------------------------------- handoff
+   539→  {
+   540→    name: "validate_publication",
+   541→    description:
+   542→      "Run full pre-publication validation for a story: approved status, editor assigned, headline/standfirst/body quality, media attached with primary set, licenses valid, web channel allowed and credits present. Returns a checklist with pass/fail per requirement.",
+   543→    inputSchema: {
+   544→      type: "object",
+   545→      properties: { storyId: { type: "string" } },
+   546→      required: ["storyId"],
+   547→    },
+   548→    execute: async (input) =>
+   549→      run(async () => {
+   550→        const storyId = requireString(input, "storyId");
+   551→        const { useNewsroom } = await import("@/hooks/use-newsroom");
+   552→        const validation = await useNewsroom.getState().validatePublication(storyId);
+   553→        return ok({
+   554→          storyId,
+   555→          valid: validation.valid,
+   556→          failedCheckIds: validation.failedCheckIds,
+   557→          checks: validation.checks,
+   558→        });
+   559→      }).catch((e: Error) => fail(e.message)),
+   560→  },
+   561→
+   562→  {
+   563→    name: "prepare_web_handoff",
+   564→    description:
+   565→      "Generate the web publishing payload for a validated, approved story. Fails with the validation checklist when the story is not ready. Review the returned payload before executing the handoff.",
+   566→    inputSchema: {
+   567→      type: "object",
+   568→      properties: {
+   569→        storyId: { type: "string" },
+   570→        requestedBy: { type: "string", description: "Identifier of the requester, e.g. 'editor-agent'." },
+   571→      },
+   572→      required: ["storyId"],
+   573→    },
+   574→    execute: async (input) =>
+   575→      run(async () => {
+   576→        const storyId = requireString(input, "storyId");
+   577→        const payload = await api
+   578→          .prepareHandoffRequest(storyId)
+   579→          .then((r) => r.payload)
+   580→          .catch(async (e: unknown) => {
+   581→            if (e instanceof api.ApiError && e.payload?.validation) {
+   582→              const validation = (
+   583→                e.payload as { validation: { checks: unknown[]; failedCheckIds: string[] } }
+   584→              ).validation;
+   585→              throw new Error(
+   586→                `Story is not ready for handoff. Failed checks: ${validation.failedCheckIds.join(", ")}. Run validate_publication for the full checklist.`
+   587→              );
+   588→            }
+   589→            throw e;
+   590→          });
+   591→        return ok({ message: "Payload generated. Review it, then call execute_web_handoff.", payload });
+   592→      }).catch((e: Error) => fail(e.message)),
+   593→  },
+   594→
+   595→  {
+   596→    name: "execute_web_handoff",
+   597→    description:
+   598→      "Perform the simulated web handoff: re-validates the story, delivers the payload to the (simulated) web CMS and marks the story Published. Blocked if validation fails.",
+   599→    inputSchema: {
+   600→      type: "object",
+   601→      properties: {
+   602→        storyId: { type: "string" },
+   603→        requestedBy: { type: "string", description: "Identifier of the requester, e.g. 'editor-agent'." },
+   604→      },
+   605→      required: ["storyId"],
+   606→    },
+   607→    execute: async (input) =>
+   608→      run(async () => {
+   609→        const storyId = requireString(input, "storyId");
+   610→        const { result } = await api.executeHandoffRequest(storyId);
+   611→        notifyDataChanged();
+   612→        if (!result.ok) {
+   613→          return {
+   614→            ok: false as const,
+   615→            status: "FAILED" as const,
+   616→            storyId,
+   617→            message: result.message,
+   618→            checks: result.checks,
+   619→          };
+   620→        }
+   621→        return ok({
+   622→          status: "SUCCESS" as const,
+   623→          handoffRef: result.handoffRef,
+   624→          deliveredAt: result.deliveredAt,
+   625→          previewUrl: result.previewUrl,
+   626→          message: result.message,
+   627→        });
+   628→      }).catch((e: Error) => fail(e.message)),
+   629→  },
+   630→];
+   631→// fast-refresh touch 1788351929
+   632→// touch 1788352703
+   633→

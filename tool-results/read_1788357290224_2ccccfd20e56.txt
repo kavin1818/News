@@ -1,0 +1,1615 @@
+     1→"use client";
+     2→
+     3→import { useEffect, useMemo, useState } from "react";
+     4→import Image from "next/image";
+     5→import { useToast } from "@/hooks/use-toast";
+     6→import { useNewsroom } from "@/hooks/use-newsroom";
+     7→import { useQueryParam } from "@/hooks/use-url-state";
+     8→import { DESKS, PRIORITIES, STORY_STATUSES, STATUS_TRANSITIONS, type StoryDTO } from "@/lib/newsroom/types";
+     9→import { cn } from "@/lib/utils";
+    10→import { Badge } from "@/components/ui/badge";
+    11→import { Button } from "@/components/ui/button";
+    12→import { Input } from "@/components/ui/input";
+    13→import { Label } from "@/components/ui/label";
+    14→import { Textarea } from "@/components/ui/textarea";
+    15→import { Skeleton } from "@/components/ui/skeleton";
+    16→import {
+    17→  Dialog,
+    18→  DialogContent,
+    19→  DialogDescription,
+    20→  DialogFooter,
+    21→  DialogHeader,
+    22→  DialogTitle,
+    23→} from "@/components/ui/dialog";
+    24→import {
+    25→  Select,
+    26→  SelectContent,
+    27→  SelectItem,
+    28→  SelectTrigger,
+    29→  SelectValue,
+    30→} from "@/components/ui/select";
+    31→import { Separator } from "@/components/ui/separator";
+    32→import {
+    33→  AlertTriangle,
+    34→  CalendarClock,
+    35→  CheckCheck,
+    36→  CopyPlus,
+    37→  Eye,
+    38→  FileText,
+    39→  ImageIcon,
+    40→  Images,
+    41→  PenLine,
+    42→  Plus,
+    43→  Search,
+    44→  Send,
+    45→  Undo2,
+    46→  UserRound,
+    47→  X,
+    48→  ArrowRightLeft,
+    49→  Newspaper,
+    50→  KanbanSquare,
+    51→  LayoutList,
+    52→  Loader2,
+    53→} from "lucide-react";
+    54→import {
+    55→  ChannelChips,
+    56→  RightsBadge,
+    57→  StatusBadge,
+    58→  StatusDot,
+    59→  DeskDot,
+    60→  STATUS_LABELS_UI,
+    61→  deadlineState,
+    62→  fmtRelative,
+    63→  fmtDateTime,
+    64→  fmtDate,
+    65→} from "./ui-primitives";
+    66→import { StoryTimeline } from "./story-timeline";
+    67→import { ReplaceMediaDialog } from "./replace-media-dialog";
+    68→import { ReaderPreviewDialog } from "./reader-preview";
+    69→
+    70→// ---------------------------------------------------------------------------
+    71→// Story Desk
+    72→// ---------------------------------------------------------------------------
+    73→
+    74→export function StoryDesk({ onSendToHandoff }: { onSendToHandoff: (id: string) => void }) {
+    75→  const stories = useNewsroom((s) => s.stories);
+    76→  const loading = useNewsroom((s) => s.storiesLoading);
+    77→  // Desk layout + selection persist in the URL (?layout=&story=…) so views are
+    78→  // deep-linkable, survive reloads, and no longer reset when switching sections.
+    79→  const [layoutParam, setLayoutParam] = useQueryParam("layout", "list");
+    80→  const layout: "list" | "board" = layoutParam === "board" ? "board" : "list";
+    81→  const [storyParam, setStoryParam] = useQueryParam("story", "");
+    82→  const [query, setQuery] = useState("");
+    83→  const [statusFilter, setStatusFilter] = useState("any");
+    84→  const [deskFilter, setDeskFilter] = useState("any");
+    85→  const [newOpen, setNewOpen] = useState(false);
+    86→  const selectedId = storyParam || null;
+    87→
+    88→  const filtered = useMemo(() => {
+    89→    const q = query.trim().toLowerCase();
+    90→    return stories.filter((s) => {
+    91→      if (statusFilter !== "any" && s.status !== statusFilter) return false;
+    92→      if (deskFilter !== "any" && s.desk !== deskFilter) return false;
+    93→      if (q) {
+    94→        const hay = `${s.title} ${s.summary} ${s.author} ${s.assignee ?? ""} ${s.slug}`.toLowerCase();
+    95→        if (!hay.includes(q)) return false;
+    96→      }
+    97→      return true;
+    98→    });
+    99→  }, [stories, query, statusFilter, deskFilter]);
+   100→
+   101→  const selected =
+   102→    (selectedId ? stories.find((s) => s.id === selectedId) : undefined) ??
+   103→    filtered[0] ??
+   104→    null;
+   105→
+   106→  const statusCounts = useMemo(() => {
+   107→    const counts: Record<string, number> = { any: stories.length };
+   108→    for (const s of stories) counts[s.status] = (counts[s.status] ?? 0) + 1;
+   109→    return counts;
+   110→  }, [stories]);
+   111→
+   112→  return (
+   113→    <div className="rise-in">
+   114→      <div className="mb-5 flex flex-wrap items-end justify-between gap-3">
+   115→        <div>
+   116→          <h2 className="font-headline text-2xl font-bold">Story Desk</h2>
+   117→          <p className="text-sm text-muted-foreground">
+   118→            Write, assign, review and move stories through the editorial workflow.
+   119→          </p>
+   120→        </div>
+   121→        <div className="flex items-center gap-2">
+   122→          <div
+   123→            role="group"
+   124→            aria-label="Desk layout"
+   125→            className="flex rounded-md border bg-card p-0.5 shadow-sm"
+   126→          >
+   127→            <button
+   128→              type="button"
+   129→              onClick={() => setLayoutParam("list")}
+   130→              aria-pressed={layout === "list"}
+   131→              title="List view"
+   132→              className={cn(
+   133→                "flex items-center gap-1.5 rounded-sm px-2.5 py-1.5 text-xs font-medium transition-colors",
+   134→                layout === "list"
+   135→                  ? "bg-primary text-primary-foreground"
+   136→                  : "text-muted-foreground hover:text-foreground"
+   137→              )}
+   138→            >
+   139→              <LayoutList className="h-3.5 w-3.5" />
+   140→              <span className="hidden sm:inline">List</span>
+   141→            </button>
+   142→            <button
+   143→              type="button"
+   144→              onClick={() => setLayoutParam("board")}
+   145→              aria-pressed={layout === "board"}
+   146→              title="Board view — stories grouped by workflow stage"
+   147→              className={cn(
+   148→                "flex items-center gap-1.5 rounded-sm px-2.5 py-1.5 text-xs font-medium transition-colors",
+   149→                layout === "board"
+   150→                  ? "bg-primary text-primary-foreground"
+   151→                  : "text-muted-foreground hover:text-foreground"
+   152→              )}
+   153→            >
+   154→              <KanbanSquare className="h-3.5 w-3.5" />
+   155→              <span className="hidden sm:inline">Board</span>
+   156→            </button>
+   157→          </div>
+   158→          <Button onClick={() => setNewOpen(true)} className="gap-1.5">
+   159→            <Plus className="h-4 w-4" /> New Story
+   160→          </Button>
+   161→        </div>
+   162→      </div>
+   163→
+   164→      {layout === "board" ? (
+   165→        <StoryBoard
+   166→          stories={filtered}
+   167→          loading={loading && stories.length === 0}
+   168→          onOpen={(id) => {
+   169→            setStoryParam(id);
+   170→            setLayoutParam("list");
+   171→          }}
+   172→          onSendToHandoff={onSendToHandoff}
+   173→        />
+   174→      ) : (
+   175→      <div className="grid gap-6 lg:grid-cols-5">
+   176→        {/* ------------------------------------------------------ list pane */}
+   177→        <section aria-label="Story list" className="min-w-0 lg:col-span-2">
+   178→          <div className="flex gap-2">
+   179→            <div className="relative flex-1">
+   180→              <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+   181→              <Input
+   182→                value={query}
+   183→                onChange={(e) => setQuery(e.target.value)}
+   184→                placeholder="Search stories…"
+   185→                className="pl-8"
+   186→                aria-label="Search stories"
+   187→              />
+   188→            </div>
+   189→            <Select value={deskFilter} onValueChange={setDeskFilter}>
+   190→              <SelectTrigger className="w-[140px]" aria-label="Filter by desk">
+   191→                <SelectValue placeholder="All desks" />
+   192→              </SelectTrigger>
+   193→              <SelectContent>
+   194→                <SelectItem value="any">All desks</SelectItem>
+   195→                {DESKS.map((d) => (
+   196→                  <SelectItem key={d} value={d}>
+   197→                    {d}
+   198→                  </SelectItem>
+   199→                ))}
+   200→              </SelectContent>
+   201→            </Select>
+   202→          </div>
+   203→
+   204→          <div className="scrollbar-slim mt-3 flex flex-wrap gap-1.5 pb-1">
+   205→            {[
+   206→              { id: "any", label: "All" },
+   207→              { id: "DRAFT", label: "Draft" },
+   208→              { id: "IN_REVIEW", label: "In Review" },
+   209→              { id: "REVISION_REQUESTED", label: "Revision" },
+   210→              { id: "APPROVED", label: "Approved" },
+   211→              { id: "PUBLISHED", label: "Published" },
+   212→            ].map((st) => (
+   213→              <button
+   214→                key={st.id}
+   215→                onClick={() => setStatusFilter(st.id)}
+   216→                className={cn(
+   217→                  "whitespace-nowrap rounded-full border px-2.5 py-1 text-xs font-medium transition-all active:scale-95",
+   218→                  statusFilter === st.id
+   219→                    ? "border-primary bg-primary text-primary-foreground shadow-sm"
+   220→                    : "bg-card text-muted-foreground hover:border-foreground/30 hover:text-foreground"
+   221→                )}
+   222→              >
+   223→                {st.label}
+   224→                <span className={cn("ml-1", statusFilter === st.id ? "text-primary-foreground/80" : "text-muted-foreground/70")}>
+   225→                  {statusCounts[st.id] ?? 0}
+   226→                </span>
+   227→              </button>
+   228→            ))}
+   229→          </div>
+   230→
+   231→          <div className="scrollbar-slim mt-3 max-h-[calc(100vh-16rem)] space-y-2 overflow-y-auto pr-1 lg:max-h-[calc(100vh-19rem)]">
+   232→            {loading && stories.length === 0 && (
+   233→              <div className="space-y-2">
+   234→                {[0, 1, 2, 3].map((i) => (
+   235→                  <div key={i} className="flex items-start gap-3 rounded-lg border p-3">
+   236→                    <Skeleton className="h-14 w-20 rounded-md" />
+   237→                    <div className="flex-1 space-y-2">
+   238→                      <Skeleton className="h-3.5 w-4/5" />
+   239→                      <Skeleton className="h-3 w-1/3" />
+   240→                      <Skeleton className="h-2.5 w-1/2" />
+   241→                    </div>
+   242→                  </div>
+   243→                ))}
+   244→              </div>
+   245→            )}
+   246→            {!loading && filtered.length === 0 && (
+   247→              <div className="flex flex-col items-center gap-3 rounded-lg border border-dashed bg-card/50 py-10 text-center">
+   248→                <FileText className="h-7 w-7 text-muted-foreground/40" />
+   249→                <p className="text-sm text-muted-foreground">
+   250→                  No stories match the current search and filters.
+   251→                </p>
+   252→                {(query || statusFilter !== "any" || deskFilter !== "any") && (
+   253→                  <Button
+   254→                    size="sm"
+   255→                    variant="outline"
+   256→                    onClick={() => {
+   257→                      setQuery("");
+   258→                      setStatusFilter("any");
+   259→                      setDeskFilter("any");
+   260→                    }}
+   261→                  >
+   262→                    <X className="mr-1.5 h-3.5 w-3.5" /> Clear filters
+   263→                  </Button>
+   264→                )}
+   265→              </div>
+   266→            )}
+   267→            {filtered.map((story) => (
+   268→              <StoryListItem
+   269→                key={story.id}
+   270→                story={story}
+   271→                active={story.id === selectedId}
+   272→                onSelect={() => setStoryParam(story.id)}
+   273→              />
+   274→            ))}
+   275→          </div>
+   276→        </section>
+   277→
+   278→        {/* ----------------------------------------------------- detail pane */}
+   279→        <section aria-label="Story detail" className="min-w-0 lg:col-span-3">
+   280→          {selected ? (
+   281→            <StoryDetail
+   282→              key={selected.id}
+   283→              story={selected}
+   284→              onSendToHandoff={onSendToHandoff}
+   285→              onDuplicated={setStoryParam}
+   286→            />
+   287→          ) : (
+   288→            <div className="flex h-64 flex-col items-center justify-center gap-2 rounded-lg border border-dashed bg-card/50 text-center">
+   289→              <FileText className="h-8 w-8 text-muted-foreground/50" />
+   290→              <p className="text-sm text-muted-foreground">
+   291→                Select a story from the desk, or create a new one.
+   292→              </p>
+   293→            </div>
+   294→          )}
+   295→        </section>
+   296→      </div>
+   297→      )}
+   298→
+   299→      <NewStoryDialog open={newOpen} onOpenChange={setNewOpen} onCreated={(id) => setStoryParam(id)} />
+   300→    </div>
+   301→  );
+   302→}
+   303→
+   304→// ---------------------------------------------------------------------------
+   305→// List item
+   306→// ---------------------------------------------------------------------------
+   307→
+   308→function StoryListItem({
+   309→  story,
+   310→  active,
+   311→  onSelect,
+   312→}: {
+   313→  story: StoryDTO;
+   314→  active: boolean;
+   315→  onSelect: () => void;
+   316→}) {
+   317→  const primary = story.media.find((m) => m.isPrimary) ?? story.media[0];
+   318→  const hasExpired = story.media.some((m) => m.media.rights.status === "EXPIRED");
+   319→
+   320→  return (
+   321→    <button
+   322→      onClick={onSelect}
+   323→      aria-current={active ? "true" : undefined}
+   324→      className={cn(
+   325→        "group flex w-full items-start gap-3 rounded-lg border p-3 text-left transition-all active:scale-[0.99]",
+   326→        active
+   327→          ? "border-primary/60 bg-card shadow-[0_1px_0_0_var(--primary)] ring-1 ring-primary/40"
+   328→          : "border-border bg-card hover:border-foreground/25 hover:shadow-sm"
+   329→      )}
+   330→    >
+   331→      <div className="relative h-14 w-20 shrink-0 overflow-hidden rounded-md bg-muted">
+   332→        {primary ? (
+   333→          <Image
+   334→            src={primary.media.url}
+   335→            alt={primary.media.title}
+   336→            fill
+   337→            sizes="80px"
+   338→            className="object-cover"
+   339→          />
+   340→        ) : (
+   341→          <div className="flex h-full w-full items-center justify-center">
+   342→            <ImageIcon className="h-4 w-4 text-muted-foreground/40" />
+   343→          </div>
+   344→        )}
+   345→      </div>
+   346→      <div className="min-w-0 flex-1">
+   347→        <p className="line-clamp-2 font-headline text-[15px] font-semibold leading-snug transition-colors group-hover:text-primary">
+   348→          {story.title}
+   349→        </p>
+   350→        <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+   351→          <StatusBadge status={story.status} />
+   352→          {(story.priority === "HIGH" || story.priority === "URGENT") && (
+   353→            <Badge
+   354→              variant="outline"
+   355→              className={cn(
+   356→                "px-1.5 py-0 text-[10px] font-bold",
+   357→                story.priority === "URGENT"
+   358→                  ? "border-red-300 bg-red-50 text-red-700 dark:border-red-800 dark:bg-red-950/50 dark:text-red-300"
+   359→                  : "border-amber-300 bg-amber-50 text-amber-700 dark:border-amber-800 dark:bg-amber-950/50 dark:text-amber-300"
+   360→              )}
+   361→            >
+   362→              {story.priority}
+   363→            </Badge>
+   364→          )}
+   365→        </div>
+   366→        <p className="mt-1.5 flex flex-wrap items-center gap-x-2 text-xs text-muted-foreground">
+   367→          <span className="flex items-center gap-1.5 font-medium text-foreground/70">
+   368→            <DeskDot desk={story.desk} />
+   369→            {story.desk}
+   370→          </span>
+   371→          <span aria-hidden>·</span>
+   372→          <span>{story.author}</span>
+   373→          <span aria-hidden>·</span>
+   374→          <span>{fmtRelative(story.updatedAt)}</span>
+   375→          {hasExpired && (
+   376→            <span className="inline-flex items-center gap-0.5 font-medium text-red-700 dark:text-red-400">
+   377→              <AlertTriangle className="h-3 w-3" /> expired media
+   378→            </span>
+   379→          )}
+   380→          {story.scheduledFor &&
+   381→            story.status !== "PUBLISHED" &&
+   382→            deadlineState(story.scheduledFor) === "past" && (
+   383→              <span className="inline-flex items-center gap-0.5 font-medium text-red-700 dark:text-red-400">
+   384→                <CalendarClock className="h-3 w-3" /> past due
+   385→              </span>
+   386→            )}
+   387→          {story.scheduledFor &&
+   388→            story.status !== "PUBLISHED" &&
+   389→            deadlineState(story.scheduledFor) === "soon" && (
+   390→              <span className="inline-flex items-center gap-0.5 font-medium text-amber-700 dark:text-amber-400">
+   391→                <CalendarClock className="h-3 w-3" /> due soon
+   392→              </span>
+   393→            )}
+   394→        </p>
+   395→      </div>
+   396→    </button>
+   397→  );
+   398→}
+   399→
+   400→// ---------------------------------------------------------------------------
+   401→// Desk board — editorial run-order board, stories grouped by workflow stage.
+   402→// ---------------------------------------------------------------------------
+   403→
+   404→const BOARD_QUICK_ACTION: Partial<
+   405→  Record<(typeof STORY_STATUSES)[number], { label: string; icon: React.ComponentType<{ className?: string }> }>
+   406→> = {
+   407→  DRAFT: { label: "Submit", icon: Eye },
+   408→  IN_REVIEW: { label: "Approve", icon: CheckCheck },
+   409→  REVISION_REQUESTED: { label: "Resubmit", icon: Eye },
+   410→  APPROVED: { label: "Handoff", icon: Send },
+   411→};
+   412→
+   413→function StoryBoard({
+   414→  stories,
+   415→  loading,
+   416→  onOpen,
+   417→  onSendToHandoff,
+   418→}: {
+   419→  stories: StoryDTO[];
+   420→  loading: boolean;
+   421→  onOpen: (id: string) => void;
+   422→  onSendToHandoff: (id: string) => void;
+   423→}) {
+   424→  const setStoryStatus = useNewsroom((s) => s.setStoryStatus);
+   425→  const approveStory = useNewsroom((s) => s.approveStory);
+   426→  const { toast } = useToast();
+   427→  const [busyId, setBusyId] = useState<string | null>(null);
+   428→  const [dragId, setDragId] = useState<string | null>(null);
+   429→  const [overStatus, setOverStatus] = useState<string | null>(null);
+   430→
+   431→  const dragStory = dragId ? (stories.find((s) => s.id === dragId) ?? null) : null;
+   432→  const legalTargets = dragStory ? (STATUS_TRANSITIONS[dragStory.status as (typeof STORY_STATUSES)[number]] ?? []) : [];
+   433→
+   434→  const attemptMove = async (story: StoryDTO, target: string) => {
+   435→    if (story.status === target) return;
+   436→    const legal = (STATUS_TRANSITIONS[story.status as (typeof STORY_STATUSES)[number]] ?? []).includes(
+   437→      target as (typeof STORY_STATUSES)[number]
+   438→    );
+   439→    if (!legal) {
+   440→      toast({
+   441→        title: "Move not allowed",
+   442→        description: `${STATUS_LABELS_UI[story.status as (typeof STORY_STATUSES)[number]]} → ${STATUS_LABELS_UI[target as (typeof STORY_STATUSES)[number]]} is outside the workflow. Publishing goes through the Handoff Engine.`,
+   443→        variant: "destructive",
+   444→      });
+   445→      return;
+   446→    }
+   447→    setBusyId(story.id);
+   448→    try {
+   449→      if (target === "APPROVED") {
+   450→        await approveStory(story.id);
+   451→        toast({ title: "Story approved" });
+   452→      } else {
+   453→        await setStoryStatus(story.id, target);
+   454→        toast({ title: `Moved to ${STATUS_LABELS_UI[target as (typeof STORY_STATUSES)[number]]}` });
+   455→      }
+   456→    } catch (e) {
+   457→      toast({
+   458→        title: "Move failed",
+   459→        description: e instanceof Error ? e.message : "Unknown error",
+   460→        variant: "destructive",
+   461→      });
+   462→    } finally {
+   463→      setBusyId(null);
+   464→    }
+   465→  };
+   466→
+   467→  const runQuick = async (story: StoryDTO) => {
+   468→    setBusyId(story.id);
+   469→    try {
+   470→      if (story.status === "DRAFT") {
+   471→        await setStoryStatus(story.id, "IN_REVIEW");
+   472→        toast({ title: "Story submitted for review" });
+   473→      } else if (story.status === "IN_REVIEW") {
+   474→        await approveStory(story.id);
+   475→        toast({ title: "Story approved" });
+   476→      } else if (story.status === "REVISION_REQUESTED") {
+   477→        await setStoryStatus(story.id, "IN_REVIEW");
+   478→        toast({ title: "Resubmitted for review" });
+   479→      } else if (story.status === "APPROVED") {
+   480→        onSendToHandoff(story.id);
+   481→        return;
+   482→      }
+   483→    } catch (e) {
+   484→      toast({
+   485→        title: "Action failed",
+   486→        description: e instanceof Error ? e.message : "Unknown error",
+   487→        variant: "destructive",
+   488→      });
+   489→    } finally {
+   490→      setBusyId(null);
+   491→    }
+   492→  };
+   493→
+   494→  return (
+   495→    <div className="rise-in">
+   496→      <p className="mb-3 text-xs text-muted-foreground">
+   497→        Run-order board — the desk at a glance. Drag cards between stages
+   498→        (workflow rules apply), click to open, or use the inline next step.
+   499→      </p>
+   500→      {loading ? (
+   501→        <div className="flex gap-3">
+   502→          {STORY_STATUSES.map((s) => (
+   503→            <div key={s} className="board-column w-[230px] shrink-0 space-y-2 pb-2">
+   504→              <Skeleton className="h-6 w-full" />
+   505→              <Skeleton className="h-24 w-full" />
+   506→              <Skeleton className="h-24 w-full" />
+   507→            </div>
+   508→          ))}
+   509→        </div>
+   510→      ) : (
+   511→        <div className="scrollbar-slim flex gap-3 overflow-x-auto pb-2">
+   512→          {STORY_STATUSES.map((status) => {
+   513→            const column = stories.filter((s) => s.status === status);
+   514→            const isSource = dragStory?.status === status;
+   515→            const isLegalTarget = legalTargets.includes(status);
+   516→            const isOver = overStatus === status;
+   517→            return (
+   518→              <section
+   519→                key={status}
+   520→                aria-label={`${STATUS_LABELS_UI[status]} column`}
+   521→                onDragOver={(e) => {
+   522→                  // Gate on the drag payload, not React state: dragstart may
+   523→                  // not have flushed state yet when the first dragover fires.
+   524→                  if (!e.dataTransfer.types.includes("text/plain")) return;
+   525→                  e.preventDefault();
+   526→                  e.dataTransfer.dropEffect = "move";
+   527→                  if (overStatus !== status) setOverStatus(status);
+   528→                }}
+   529→                onDragLeave={(e) => {
+   530→                  if (!e.currentTarget.contains(e.relatedTarget as Node)) {
+   531→                    setOverStatus((s) => (s === status ? null : s));
+   532→                  }
+   533→                }}
+   534→                onDrop={(e) => {
+   535→                  e.preventDefault();
+   536→                  const id = e.dataTransfer.getData("text/plain") || dragId;
+   537→                  const story = id ? stories.find((s) => s.id === id) : null;
+   538→                  setOverStatus(null);
+   539→                  setDragId(null);
+   540→                  if (story) void attemptMove(story, status);
+   541→                }}
+   542→                className={cn(
+   543→                  "board-column w-[236px] shrink-0 rounded-b-lg transition-all sm:w-[252px]",
+   544→                  dragStory && isLegalTarget &&
+   545→                    "rounded-lg ring-2 ring-emerald-500/50 ring-offset-2 ring-offset-background",
+   546→                  dragStory && isLegalTarget && isOver && "bg-emerald-500/5",
+   547→                  dragStory && !isSource && !isLegalTarget && "opacity-45",
+   548→                  isSource && "opacity-90"
+   549→                )}
+   550→              >
+   551→                <header className="board-column-head flex items-center gap-2 px-1 pb-2 pt-1.5">
+   552→                  <StatusDot status={status} />
+   553→                  <h3 className="text-[11px] font-semibold uppercase tracking-[0.1em] text-foreground/80">
+   554→                    {STATUS_LABELS_UI[status]}
+   555→                  </h3>
+   556→                  <span className="ml-auto rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-bold leading-none text-muted-foreground">
+   557→                    {column.length}
+   558→                  </span>
+   559→                </header>
+   560→                <div className="mt-2 min-h-[80px] space-y-2">
+   561→                  {column.map((story) => (
+   562→                    <BoardCard
+   563→                      key={story.id}
+   564→                      story={story}
+   565→                      busy={busyId === story.id}
+   566→                      dragging={dragId === story.id}
+   567→                      onDragStart={() => setDragId(story.id)}
+   568→                      onDragEnd={() => {
+   569→                        setDragId(null);
+   570→                        setOverStatus(null);
+   571→                      }}
+   572→                      onOpen={() => onOpen(story.id)}
+   573→                      onQuick={() => void runQuick(story)}
+   574→                    />
+   575→                  ))}
+   576→                  {column.length === 0 && (
+   577→                    <div
+   578→                      className={cn(
+   579→                        "rounded-lg border border-dashed px-3 py-4 text-center text-[11px] text-muted-foreground/70 transition-colors",
+   580→                        dragStory && isLegalTarget && isOver &&
+   581→                          "border-emerald-500/60 text-emerald-700 dark:text-emerald-400"
+   582→                      )}
+   583→                    >
+   584→                      {dragStory && isLegalTarget
+   585→                        ? `Drop to move to ${STATUS_LABELS_UI[status]}`
+   586→                        : "Nothing here right now."}
+   587→                    </div>
+   588→                  )}
+   589→                </div>
+   590→              </section>
+   591→            );
+   592→          })}
+   593→        </div>
+   594→      )}
+   595→    </div>
+   596→  );
+   597→}
+   598→
+   599→function BoardCard({
+   600→  story,
+   601→  busy,
+   602→  dragging,
+   603→  onDragStart,
+   604→  onDragEnd,
+   605→  onOpen,
+   606→  onQuick,
+   607→}: {
+   608→  story: StoryDTO;
+   609→  busy: boolean;
+   610→  dragging: boolean;
+   611→  onDragStart: () => void;
+   612→  onDragEnd: () => void;
+   613→  onOpen: () => void;
+   614→  onQuick: () => void;
+   615→}) {
+   616→  const hasExpired = story.media.some((m) => m.media.rights.status === "EXPIRED");
+   617→  const deadline = deadlineState(story.scheduledFor);
+   618→  const quick = BOARD_QUICK_ACTION[story.status as (typeof STORY_STATUSES)[number]];
+   619→
+   620→  return (
+   621→    <div
+   622→      draggable
+   623→      onDragStart={(e) => {
+   624→        e.dataTransfer.setData("text/plain", story.id);
+   625→        e.dataTransfer.effectAllowed = "move";
+   626→        onDragStart();
+   627→      }}
+   628→      onDragEnd={onDragEnd}
+   629→      className={cn(
+   630→        "group cursor-grab rounded-lg border bg-card p-2.5 shadow-sm transition-all hover:shadow-md hover:border-foreground/25 active:cursor-grabbing active:scale-[0.99]",
+   631→        hasExpired && "border-red-300 dark:border-red-800/70",
+   632→        dragging && "opacity-40 ring-2 ring-primary/40"
+   633→      )}
+   634→    >
+   635→      <button onClick={onOpen} className="block w-full text-left" title="Open story in list view">
+   636→        <p className="line-clamp-2 font-headline text-[13px] font-semibold leading-snug transition-colors group-hover:text-primary">
+   637→          {story.title}
+   638→        </p>
+   639→        <p className="mt-1.5 flex flex-wrap items-center gap-x-1.5 gap-y-1 text-[11px] text-muted-foreground">
+   640→          <span className="flex items-center gap-1 font-medium text-foreground/70">
+   641→            <DeskDot desk={story.desk} />
+   642→            {story.desk}
+   643→          </span>
+   644→          <span aria-hidden>·</span>
+   645→          <span>{story.author}</span>
+   646→          {(story.priority === "HIGH" || story.priority === "URGENT") && (
+   647→            <Badge
+   648→              variant="outline"
+   649→              className={cn(
+   650→                "px-1 py-0 text-[9px] font-bold",
+   651→                story.priority === "URGENT"
+   652→                  ? "border-red-300 bg-red-50 text-red-700 dark:border-red-800 dark:bg-red-950/50 dark:text-red-300"
+   653→                  : "border-amber-300 bg-amber-50 text-amber-700 dark:border-amber-800 dark:bg-amber-950/50 dark:text-amber-300"
+   654→              )}
+   655→            >
+   656→              {story.priority}
+   657→            </Badge>
+   658→          )}
+   659→        </p>
+   660→        <p className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[10px] text-muted-foreground/80">
+   661→          {story.media.length > 0 && (
+   662→            <span className="inline-flex items-center gap-0.5">
+   663→              <ImageIcon className="h-2.5 w-2.5" /> {story.media.length}
+   664→            </span>
+   665→          )}
+   666→          {hasExpired && (
+   667→            <span className="inline-flex items-center gap-0.5 font-medium text-red-700 dark:text-red-400">
+   668→              <AlertTriangle className="h-2.5 w-2.5" /> expired media
+   669→            </span>
+   670→          )}
+   671→          {story.scheduledFor && story.status !== "PUBLISHED" && deadline === "past" && (
+   672→            <span className="inline-flex items-center gap-0.5 font-medium text-red-700 dark:text-red-400">
+   673→              <CalendarClock className="h-2.5 w-2.5" /> past due
+   674→            </span>
+   675→          )}
+   676→          {story.scheduledFor && story.status !== "PUBLISHED" && deadline === "soon" && (
+   677→            <span className="inline-flex items-center gap-0.5 font-medium text-amber-700 dark:text-amber-400">
+   678→              <CalendarClock className="h-2.5 w-2.5" /> due soon
+   679→            </span>
+   680→          )}
+   681→        </p>
+   682→      </button>
+   683→      {quick && (
+   684→        <div className="mt-2 border-t pt-2">
+   685→          <QuickActionButton story={story} quick={quick} busy={busy} onQuick={onQuick} />
+   686→        </div>
+   687→      )}
+   688→    </div>
+   689→  );
+   690→}
+   691→
+   692→function QuickActionButton({
+   693→  story,
+   694→  quick,
+   695→  busy,
+   696→  onQuick,
+   697→}: {
+   698→  story: StoryDTO;
+   699→  quick: { label: string; icon: React.ComponentType<{ className?: string }> };
+   700→  busy: boolean;
+   701→  onQuick: () => void;
+   702→}) {
+   703→  const Icon = quick.icon;
+   704→  return (
+   705→    <Button
+   706→      size="sm"
+   707→      variant={story.status === "IN_REVIEW" ? "default" : "outline"}
+   708→      className={cn(
+   709→        "h-7 w-full gap-1 text-[11px]",
+   710→        story.status === "IN_REVIEW" && "bg-emerald-700 hover:bg-emerald-800"
+   711→      )}
+   712→      disabled={busy}
+   713→      onClick={onQuick}
+   714→    >
+   715→      {busy ? <Loader2 className="h-3 w-3 animate-spin" /> : <Icon className="h-3 w-3" />}
+   716→      {quick.label}
+   717→    </Button>
+   718→  );
+   719→}
+   720→
+   721→// ---------------------------------------------------------------------------
+   722→// Detail
+   723→// ---------------------------------------------------------------------------
+   724→
+   725→function StoryDetail({
+   726→  story,
+   727→  onSendToHandoff,
+   728→  onDuplicated,
+   729→}: {
+   730→  story: StoryDTO;
+   731→  onSendToHandoff: (id: string) => void;
+   732→  onDuplicated: (id: string) => void;
+   733→}) {
+   734→  const { toast } = useToast();
+   735→  const setStoryStatus = useNewsroom((s) => s.setStoryStatus);
+   736→  const approveStory = useNewsroom((s) => s.approveStory);
+   737→  const duplicateStory = useNewsroom((s) => s.duplicateStory);
+   738→  const [busyAction, setBusyAction] = useState<string | null>(null);
+   739→  const [editing, setEditing] = useState(false);
+   740→  const [attachOpen, setAttachOpen] = useState(false);
+   741→  const [previewOpen, setPreviewOpen] = useState(false);
+   742→  const [replaceMediaId, setReplaceMediaId] = useState<string | null>(null);
+   743→
+   744→  const deadline = deadlineState(story.scheduledFor);
+   745→  const deadlineOverdue =
+   746→    deadline === "past" && story.status !== "PUBLISHED";
+   747→
+   748→  const runAction = async (id: string, fn: () => Promise<unknown>, success: string) => {
+   749→    setBusyAction(id);
+   750→    try {
+   751→      await fn();
+   752→      toast({ title: success });
+   753→    } catch (e) {
+   754→      toast({
+   755→        title: "Action failed",
+   756→        description: e instanceof Error ? e.message : "Unknown error",
+   757→        variant: "destructive",
+   758→      });
+   759→    } finally {
+   760→      setBusyAction(null);
+   761→    }
+   762→  };
+   763→
+   764→  return (
+   765→    <article className="rise-in rounded-lg border bg-card">
+   766→      {/* header */}
+   767→      <div className="border-b p-5">
+   768→        <div className="flex flex-wrap items-center gap-2">
+   769→          <StatusBadge status={story.status} />
+   770→          <Badge variant="outline" className="gap-1.5 text-xs">
+   771→            <DeskDot desk={story.desk} />
+   772→            {story.desk} desk
+   773→          </Badge>
+   774→          {story.priority !== "NORMAL" && (
+   775→            <Badge variant="outline" className="text-xs">
+   776→              {story.priority}
+   777→            </Badge>
+   778→          )}
+   779→          {story.handoffCount > 0 && (
+   780→            <Badge variant="outline" className="gap-1 border-primary/40 text-[11px] text-primary">
+   781→              <Send className="h-3 w-3" /> {story.handoffCount} handoff(s)
+   782→            </Badge>
+   783→          )}
+   784→          {story.scheduledFor && (
+   785→            <Badge
+   786→              variant="outline"
+   787→              className={cn(
+   788→                "gap-1 text-[11px]",
+   789→                deadlineOverdue
+   790→                  ? "border-red-300 bg-red-50 font-medium text-red-700 dark:border-red-800 dark:bg-red-950/50 dark:text-red-300"
+   791→                  : deadline === "soon" && story.status !== "PUBLISHED"
+   792→                    ? "border-amber-300 bg-amber-50 font-medium text-amber-800 dark:border-amber-800 dark:bg-amber-950/50 dark:text-amber-300"
+   793→                    : "text-muted-foreground"
+   794→              )}
+   795→            >
+   796→              <CalendarClock className="h-3 w-3" />
+   797→              {story.status !== "PUBLISHED" && deadline === "past"
+   798→                ? "past due "
+   799→                : story.status !== "PUBLISHED" && deadline === "soon"
+   800→                  ? "due soon "
+   801→                  : "target "}
+   802→              {fmtDate(story.scheduledFor)}
+   803→            </Badge>
+   804→          )}
+   805→        </div>
+   806→
+   807→        <h3 className="mt-3 font-headline text-2xl font-bold leading-tight">
+   808→          {story.title}
+   809→        </h3>
+   810→        {story.summary && (
+   811→          <p className="mt-2 border-l-2 border-primary/50 pl-3 text-sm italic leading-relaxed text-muted-foreground">
+   812→            {story.summary}
+   813→          </p>
+   814→        )}
+   815→
+   816→        <dl className="mt-4 grid grid-cols-2 gap-x-4 gap-y-1.5 text-xs sm:grid-cols-4">
+   817→          <Meta label="Byline" value={story.author} />
+   818→          <Meta label="Desk editor" value={story.assignee ?? "Unassigned"} warn={!story.assignee} />
+   819→          <Meta label="Slug" value={story.slug} mono />
+   820→          <Meta label="Words" value={String(story.wordCount)} />
+   821→          <Meta label="Created" value={fmtDateTime(story.createdAt)} />
+   822→          <Meta label="Updated" value={fmtRelative(story.updatedAt)} />
+   823→          {story.publishedAt && <Meta label="Published" value={fmtDateTime(story.publishedAt)} />}
+   824→        </dl>
+   825→      </div>
+   826→
+   827→      {/* workflow actions */}
+   828→      <div className="flex flex-wrap items-center gap-2 border-b bg-muted/40 px-5 py-3">
+   829→        {story.status === "DRAFT" && (
+   830→          <Button
+   831→            size="sm"
+   832→            disabled={busyAction !== null}
+   833→            onClick={() =>
+   834→              runAction(
+   835→                "submit",
+   836→                () => setStoryStatus(story.id, "IN_REVIEW"),
+   837→                "Story submitted for review"
+   838→              )
+   839→            }
+   840→          >
+   841→            <Eye className="mr-1.5 h-3.5 w-3.5" /> Submit for Review
+   842→          </Button>
+   843→        )}
+   844→        {story.status === "IN_REVIEW" && (
+   845→          <>
+   846→            <Button
+   847→              size="sm"
+   848→              className="bg-emerald-700 hover:bg-emerald-800"
+   849→              disabled={busyAction !== null}
+   850→              onClick={() => runAction("approve", () => approveStory(story.id), "Story approved")}
+   851→            >
+   852→              <CheckCheck className="mr-1.5 h-3.5 w-3.5" /> Approve
+   853→            </Button>
+   854→            <Button
+   855→              size="sm"
+   856→              variant="outline"
+   857→              disabled={busyAction !== null}
+   858→              onClick={() =>
+   859→                runAction(
+   860→                  "revise",
+   861→                  () => setStoryStatus(story.id, "REVISION_REQUESTED"),
+   862→                  "Revision requested"
+   863→                )
+   864→              }
+   865→            >
+   866→              <Undo2 className="mr-1.5 h-3.5 w-3.5" /> Request Revision
+   867→            </Button>
+   868→            <Button
+   869→              size="sm"
+   870→              variant="ghost"
+   871→              disabled={busyAction !== null}
+   872→              onClick={() => runAction("draft", () => setStoryStatus(story.id, "DRAFT"), "Sent back to Draft")}
+   873→            >
+   874→              <PenLine className="mr-1.5 h-3.5 w-3.5" /> Back to Draft
+   875→            </Button>
+   876→          </>
+   877→        )}
+   878→        {story.status === "REVISION_REQUESTED" && (
+   879→          <>
+   880→            <Button
+   881→              size="sm"
+   882→              disabled={busyAction !== null}
+   883→              onClick={() =>
+   884→                runAction("resubmit", () => setStoryStatus(story.id, "IN_REVIEW"), "Resubmitted for review")
+   885→              }
+   886→            >
+   887→              <Eye className="mr-1.5 h-3.5 w-3.5" /> Resubmit for Review
+   888→            </Button>
+   889→            <Button
+   890→              size="sm"
+   891→              variant="ghost"
+   892→              disabled={busyAction !== null}
+   893→              onClick={() => runAction("draft", () => setStoryStatus(story.id, "DRAFT"), "Sent back to Draft")}
+   894→            >
+   895→              <PenLine className="mr-1.5 h-3.5 w-3.5" /> Back to Draft
+   896→            </Button>
+   897→          </>
+   898→        )}
+   899→        {story.status === "APPROVED" && (
+   900→          <>
+   901→            <Button size="sm" className="gap-1.5" disabled={busyAction !== null} onClick={() => onSendToHandoff(story.id)}>
+   902→              <Send className="h-3.5 w-3.5" /> Take to Handoff
+   903→            </Button>
+   904→            <Button
+   905→              size="sm"
+   906→              variant="outline"
+   907→              disabled={busyAction !== null}
+   908→              onClick={() => runAction("reopen", () => setStoryStatus(story.id, "IN_REVIEW"), "Review reopened")}
+   909→            >
+   910→              <Undo2 className="mr-1.5 h-3.5 w-3.5" /> Reopen Review
+   911→            </Button>
+   912→          </>
+   913→        )}
+   914→        {story.status === "PUBLISHED" && (
+   915→          <p className="flex items-center gap-2 text-sm text-muted-foreground">
+   916→            <CalendarClock className="h-4 w-4 text-primary" />
+   917→            Published to the web — handed off {fmtRelative(story.publishedAt ?? story.updatedAt)}.
+   918→          </p>
+   919→        )}
+   920→
+   921→        <div className="ml-auto flex max-w-full flex-wrap items-center justify-end gap-1">
+   922→          <Button
+   923→            size="sm"
+   924→            variant="ghost"
+   925→            className="gap-1.5"
+   926→            disabled={busyAction !== null}
+   927→            title="Pitch a follow-up story from this one"
+   928→            onClick={async () => {
+   929→              setBusyAction("duplicate");
+   930→              try {
+   931→                const created = await duplicateStory(story.id);
+   932→                toast({
+   933→                  title: "Follow-up pitched",
+   934→                  description: `“${created.title}” created as a Draft on the ${created.desk} desk.`,
+   935→                });
+   936→                onDuplicated(created.id);
+   937→              } catch (e) {
+   938→                toast({
+   939→                  title: "Duplicate failed",
+   940→                  description: e instanceof Error ? e.message : "Unknown error",
+   941→                  variant: "destructive",
+   942→                });
+   943→              } finally {
+   944→                setBusyAction(null);
+   945→              }
+   946→            }}
+   947→          >
+   948→            <CopyPlus className="h-3.5 w-3.5" /> Follow-up
+   949→          </Button>
+   950→          <Button
+   951→            size="sm"
+   952→            variant="ghost"
+   953→            className="gap-1.5"
+   954→            onClick={() => setPreviewOpen(true)}
+   955→          >
+   956→            <Newspaper className="h-3.5 w-3.5" /> Reader Preview
+   957→          </Button>
+   958→          {story.status !== "PUBLISHED" && (
+   959→            <Button size="sm" variant="ghost" onClick={() => setEditing((v) => !v)}>
+   960→              <PenLine className="mr-1.5 h-3.5 w-3.5" />
+   961→              {editing ? "Close Editor" : "Edit Story"}
+   962→            </Button>
+   963→          )}
+   964→        </div>
+   965→      </div>
+   966→
+   967→      {/* body */}
+   968→      <div className="p-5">
+   969→        {editing ? (
+   970→          <EditStoryForm
+   971→            story={story}
+   972→            onDone={() => setEditing(false)}
+   973→          />
+   974→        ) : (
+   975→          <div className="space-y-4">
+   976→            <h4 className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+   977→              Body copy
+   978→            </h4>
+   979→            <div className="max-h-72 space-y-3 overflow-y-auto scrollbar-slim pr-1 text-[15px] leading-relaxed">
+   980→              {story.body.split("\n\n").map((para, i) => (
+   981→                <p key={i}>{para}</p>
+   982→              ))}
+   983→              {!story.body && (
+   984→                <p className="text-sm italic text-muted-foreground">
+   985→                  No body copy yet — open the editor to start writing.
+   986→                </p>
+   987→              )}
+   988→            </div>
+   989→          </div>
+   990→        )}
+   991→
+   992→        <Separator className="my-5" />
+   993→
+   994→        {/* media */}
+   995→        <StoryMediaSection
+   996→          story={story}
+   997→          attachOpen={attachOpen}
+   998→          setAttachOpen={setAttachOpen}
+   999→          onReplace={(mediaId) => setReplaceMediaId(mediaId)}
+  1000→        />
+  1001→
+  1002→        <Separator className="my-5" />
+  1003→
+  1004→        <StoryTimeline storyId={story.id} />
+  1005→      </div>
+  1006→
+  1007→      <ReaderPreviewDialog story={story} open={previewOpen} onOpenChange={setPreviewOpen} />
+  1008→      {replaceMediaId && (
+  1009→        <ReplaceMediaDialog
+  1010→          story={story}
+  1011→          mediaId={replaceMediaId}
+  1012→          open={replaceMediaId !== null}
+  1013→          onOpenChange={(v) => {
+  1014→            if (!v) setReplaceMediaId(null);
+  1015→          }}
+  1016→        />
+  1017→      )}
+  1018→    </article>
+  1019→  );
+  1020→}
+  1021→
+  1022→function Meta({
+  1023→  label,
+  1024→  value,
+  1025→  mono,
+  1026→  warn,
+  1027→}: {
+  1028→  label: string;
+  1029→  value: string;
+  1030→  mono?: boolean;
+  1031→  warn?: boolean;
+  1032→}) {
+  1033→  return (
+  1034→    <div>
+  1035→      <dt className="text-[10px] uppercase tracking-[0.12em] text-muted-foreground">{label}</dt>
+  1036→      <dd className={cn("truncate font-medium", mono && "font-mono text-[11px]", warn && "text-amber-700 dark:text-amber-400")}>
+  1037→        {value}
+  1038→      </dd>
+  1039→    </div>
+  1040→  );
+  1041→}
+  1042→
+  1043→// ---------------------------------------------------------------------------
+  1044→// Media section of the story detail
+  1045→// ---------------------------------------------------------------------------
+  1046→
+  1047→function StoryMediaSection({
+  1048→  story,
+  1049→  attachOpen,
+  1050→  setAttachOpen,
+  1051→  onReplace,
+  1052→}: {
+  1053→  story: StoryDTO;
+  1054→  attachOpen: boolean;
+  1055→  setAttachOpen: (v: boolean) => void;
+  1056→  onReplace: (mediaId: string) => void;
+  1057→}) {
+  1058→  const { toast } = useToast();
+  1059→  const detachMedia = useNewsroom((s) => s.detachMedia);
+  1060→  const updateAttachment = useNewsroom((s) => s.updateAttachment);
+  1061→  const [busy, setBusy] = useState<string | null>(null);
+  1062→
+  1063→  const doDetach = async (mediaId: string, title: string) => {
+  1064→    setBusy(mediaId);
+  1065→    try {
+  1066→      await detachMedia(story.id, mediaId);
+  1067→      toast({ title: `Removed "${title}" from the story` });
+  1068→    } catch (e) {
+  1069→      toast({
+  1070→        title: "Could not remove media",
+  1071→        description: e instanceof Error ? e.message : "Unknown error",
+  1072→        variant: "destructive",
+  1073→      });
+  1074→    } finally {
+  1075→      setBusy(null);
+  1076→    }
+  1077→  };
+  1078→
+  1079→  const makePrimary = async (mediaId: string) => {
+  1080→    setBusy(mediaId);
+  1081→    try {
+  1082→      await updateAttachment(story.id, mediaId, { isPrimary: true });
+  1083→      toast({ title: "Lead image updated" });
+  1084→    } catch (e) {
+  1085→      toast({
+  1086→        title: "Could not set lead image",
+  1087→        description: e instanceof Error ? e.message : "Unknown error",
+  1088→        variant: "destructive",
+  1089→      });
+  1090→    } finally {
+  1091→      setBusy(null);
+  1092→    }
+  1093→  };
+  1094→
+  1095→  return (
+  1096→    <section aria-label="Attached media">
+  1097→      <div className="mb-3 flex items-center justify-between">
+  1098→        <h4 className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+  1099→          Attached media ({story.media.length})
+  1100→        </h4>
+  1101→        {story.status !== "PUBLISHED" && (
+  1102→          <Button size="sm" variant="outline" className="gap-1.5" onClick={() => setAttachOpen(true)}>
+  1103→            <Images className="h-3.5 w-3.5" /> Attach from Vault
+  1104→          </Button>
+  1105→        )}
+  1106→      </div>
+  1107→
+  1108→      {story.media.length === 0 ? (
+  1109→        <div className="flex flex-col items-center gap-2 rounded-lg border border-dashed py-8 text-center">
+  1110→          <Images className="h-6 w-6 text-muted-foreground/50" />
+  1111→          <p className="text-sm text-muted-foreground">
+  1112→            No media attached. Publication requires at least one cleared asset.
+  1113→          </p>
+  1114→          {story.status !== "PUBLISHED" && (
+  1115→            <Button size="sm" variant="outline" className="gap-1.5" onClick={() => setAttachOpen(true)}>
+  1116→              <Images className="h-3.5 w-3.5" /> Browse the Vault
+  1117→            </Button>
+  1118→          )}
+  1119→        </div>
+  1120→      ) : (
+  1121→        <div className="grid gap-3 sm:grid-cols-2">
+  1122→          {story.media.map((att) => {
+  1123→            const expired = att.media.rights.status === "EXPIRED";
+  1124→            return (
+  1125→              <div
+  1126→                key={att.mediaId}
+  1127→                className={cn(
+  1128→                  "group flex gap-3 rounded-lg border p-2.5 transition-colors",
+  1129→                  expired
+  1130→                    ? "border-red-300 bg-red-50/50 dark:border-red-800 dark:bg-red-950/40"
+  1131→                    : "bg-card hover:border-foreground/25"
+  1132→                )}
+  1133→              >
+  1134→                <div className="relative h-20 w-28 shrink-0 overflow-hidden rounded-md bg-muted">
+  1135→                  <Image
+  1136→                    src={att.media.url}
+  1137→                    alt={att.media.title}
+  1138→                    fill
+  1139→                    sizes="112px"
+  1140→                    className={cn("object-cover", expired && "grayscale")}
+  1141→                  />
+  1142→                  {expired && (
+  1143→                    <div className="absolute inset-0 expired-hatch" />
+  1144→                  )}
+  1145→                </div>
+  1146→                <div className="min-w-0 flex-1">
+  1147→                  <div className="flex items-center gap-1.5">
+  1148→                    {att.isPrimary && (
+  1149→                      <Badge className="bg-primary px-1.5 py-0 text-[10px] text-primary-foreground">
+  1150→                        Lead
+  1151→                      </Badge>
+  1152→                    )}
+  1153→                    <RightsBadge status={att.media.rights.status} />
+  1154→                  </div>
+  1155→                  <p className="mt-1 line-clamp-1 text-sm font-medium">{att.media.title}</p>
+  1156→                  <p className="line-clamp-1 text-xs text-muted-foreground">
+  1157→                    {att.caption || att.media.description}
+  1158→                  </p>
+  1159→                  <p className="mt-1 text-[11px] text-muted-foreground">
+  1160→                    {att.media.photographer} · {att.media.licenseType}
+  1161→                  </p>
+  1162→                  {story.status !== "PUBLISHED" && (
+  1163→                    <div className="mt-1.5 flex flex-wrap gap-1.5">
+  1164→                      {!att.isPrimary && (
+  1165→                        <Button
+  1166→                          size="sm"
+  1167→                          variant="ghost"
+  1168→                          className="h-6 px-2 text-[11px]"
+  1169→                          disabled={busy === att.mediaId}
+  1170→                          onClick={() => makePrimary(att.mediaId)}
+  1171→                        >
+  1172→                          Make lead
+  1173→                        </Button>
+  1174→                      )}
+  1175→                      <Button
+  1176→                        size="sm"
+  1177→                        variant="ghost"
+  1178→                        className={cn(
+  1179→                          "h-6 gap-1 px-2 text-[11px]",
+  1180→                          expired ? "font-medium text-red-700 hover:text-red-800 dark:text-red-400 dark:hover:text-red-300" : ""
+  1181→                        )}
+  1182→                        onClick={() => onReplace(att.mediaId)}
+  1183→                        title="Swap this asset for a web-cleared replacement"
+  1184→                      >
+  1185→                        <ArrowRightLeft className="h-3 w-3" /> Replace
+  1186→                      </Button>
+  1187→                      <Button
+  1188→                        size="sm"
+  1189→                        variant="ghost"
+  1190→                        className="h-6 px-2 text-[11px] text-red-700 hover:text-red-800 dark:text-red-400 dark:hover:text-red-300"
+  1191→                        disabled={busy === att.mediaId}
+  1192→                        onClick={() => doDetach(att.mediaId, att.media.title)}
+  1193→                      >
+  1194→                        <X className="mr-0.5 h-3 w-3" /> Remove
+  1195→                      </Button>
+  1196→                    </div>
+  1197→                  )}
+  1198→                </div>
+  1199→              </div>
+  1200→            );
+  1201→          })}
+  1202→        </div>
+  1203→      )}
+  1204→
+  1205→      <AttachMediaDialog
+  1206→        story={story}
+  1207→        open={attachOpen}
+  1208→        onOpenChange={setAttachOpen}
+  1209→      />
+  1210→    </section>
+  1211→  );
+  1212→}
+  1213→
+  1214→// ---------------------------------------------------------------------------
+  1215→// Attach media dialog
+  1216→// ---------------------------------------------------------------------------
+  1217→
+  1218→function AttachMediaDialog({
+  1219→  story,
+  1220→  open,
+  1221→  onOpenChange,
+  1222→}: {
+  1223→  story: StoryDTO;
+  1224→  open: boolean;
+  1225→  onOpenChange: (v: boolean) => void;
+  1226→}) {
+  1227→  const media = useNewsroom((s) => s.media);
+  1228→  const attachMedia = useNewsroom((s) => s.attachMedia);
+  1229→  const { toast } = useToast();
+  1230→  const [query, setQuery] = useState("");
+  1231→  const [caption, setCaption] = useState("");
+  1232→  const [selectedId, setSelectedId] = useState<string | null>(null);
+  1233→  const [busy, setBusy] = useState(false);
+  1234→
+  1235→  const attachedIds = useMemo(
+  1236→    () => new Set(story.media.map((m) => m.mediaId)),
+  1237→    [story.media]
+  1238→  );
+  1239→
+  1240→  const candidates = useMemo(() => {
+  1241→    const q = query.trim().toLowerCase();
+  1242→    return media
+  1243→      .filter((m) => !attachedIds.has(m.id))
+  1244→      .filter((m) => {
+  1245→        if (!q) return true;
+  1246→        return `${m.title} ${m.description} ${m.photographer} ${m.source}`.toLowerCase().includes(q);
+  1247→      });
+  1248→  }, [media, query, attachedIds]);
+  1249→
+  1250→  const doAttach = async () => {
+  1251→    if (!selectedId) return;
+  1252→    setBusy(true);
+  1253→    try {
+  1254→      await attachMedia(story.id, selectedId, {
+  1255→        caption: caption.trim() || null,
+  1256→        isPrimary: story.media.length === 0,
+  1257→      });
+  1258→      toast({ title: "Media attached to story" });
+  1259→      onOpenChange(false);
+  1260→      setCaption("");
+  1261→      setSelectedId(null);
+  1262→      setQuery("");
+  1263→    } catch (e) {
+  1264→      toast({
+  1265→        title: "Could not attach media",
+  1266→        description: e instanceof Error ? e.message : "Unknown error",
+  1267→        variant: "destructive",
+  1268→      });
+  1269→    } finally {
+  1270→      setBusy(false);
+  1271→    }
+  1272→  };
+  1273→
+  1274→  return (
+  1275→    <Dialog open={open} onOpenChange={onOpenChange}>
+  1276→      <DialogContent className="max-w-2xl">
+  1277→        <DialogHeader>
+  1278→          <DialogTitle className="font-headline">Attach media to story</DialogTitle>
+  1279→          <DialogDescription>
+  1280→            Pick an asset from the vault. Rights are re-checked automatically before publication.
+  1281→          </DialogDescription>
+  1282→        </DialogHeader>
+  1283→
+  1284→        <div className="relative">
+  1285→          <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+  1286→          <Input
+  1287→            value={query}
+  1288→            onChange={(e) => setQuery(e.target.value)}
+  1289→            placeholder="Search the vault…"
+  1290→            className="pl-8"
+  1291→          />
+  1292→        </div>
+  1293→
+  1294→        <div className="scrollbar-slim grid max-h-72 grid-cols-2 gap-2 overflow-y-auto sm:grid-cols-3">
+  1295→          {candidates.map((m) => (
+  1296→            <button
+  1297→              key={m.id}
+  1298→              onClick={() => setSelectedId(m.id)}
+  1299→              className={cn(
+  1300→                "rounded-lg border p-1.5 text-left transition-all",
+  1301→                selectedId === m.id
+  1302→                  ? "border-primary ring-1 ring-primary/50"
+  1303→                  : "hover:border-foreground/30"
+  1304→              )}
+  1305→            >
+  1306→              <div className="relative aspect-[3/2] overflow-hidden rounded bg-muted">
+  1307→                <Image src={m.url} alt={m.title} fill sizes="200px" className="object-cover" />
+  1308→              </div>
+  1309→              <p className="mt-1 line-clamp-1 text-xs font-medium">{m.title}</p>
+  1310→              <div className="mt-1 flex items-center justify-between gap-1">
+  1311→                <RightsBadge status={m.rights.status} label={m.rights.status === "PERPETUAL" ? "Perpetual" : undefined} />
+  1312→              </div>
+  1313→            </button>
+  1314→          ))}
+  1315→          {candidates.length === 0 && (
+  1316→            <p className="col-span-full py-8 text-center text-sm text-muted-foreground">
+  1317→              Every vault asset is already attached, or nothing matches.
+  1318→            </p>
+  1319→          )}
+  1320→        </div>
+  1321→
+  1322→        <div className="space-y-1.5">
+  1323→          <Label htmlFor="caption">Caption</Label>
+  1324→          <Input
+  1325→            id="caption"
+  1326→            value={caption}
+  1327→            onChange={(e) => setCaption(e.target.value)}
+  1328→            placeholder="Editorial caption shown with the image…"
+  1329→          />
+  1330→        </div>
+  1331→
+  1332→        <DialogFooter>
+  1333→          <Button variant="outline" onClick={() => onOpenChange(false)}>
+  1334→            Cancel
+  1335→          </Button>
+  1336→          <Button onClick={doAttach} disabled={!selectedId || busy}>
+  1337→            {busy ? "Attaching…" : "Attach to Story"}
+  1338→          </Button>
+  1339→        </DialogFooter>
+  1340→      </DialogContent>
+  1341→    </Dialog>
+  1342→  );
+  1343→}
+  1344→
+  1345→// ---------------------------------------------------------------------------
+  1346→// Edit form
+  1347→// ---------------------------------------------------------------------------
+  1348→
+  1349→function EditStoryForm({ story, onDone }: { story: StoryDTO; onDone: () => void }) {
+  1350→  const updateStoryFields = useNewsroom((s) => s.updateStoryFields);
+  1351→  const { toast } = useToast();
+  1352→  const [title, setTitle] = useState(story.title);
+  1353→  const [summary, setSummary] = useState(story.summary);
+  1354→  const [body, setBody] = useState(story.body);
+  1355→  const [desk, setDesk] = useState(story.desk);
+  1356→  const [assignee, setAssignee] = useState(story.assignee ?? "");
+  1357→  const [priority, setPriority] = useState(story.priority);
+  1358→  const [deadline, setDeadline] = useState(
+  1359→    story.scheduledFor ? story.scheduledFor.slice(0, 10) : ""
+  1360→  );
+  1361→  const [busy, setBusy] = useState(false);
+  1362→
+  1363→  const save = async () => {
+  1364→    setBusy(true);
+  1365→    try {
+  1366→      const updated = await updateStoryFields(story.id, {
+  1367→        title,
+  1368→        summary,
+  1369→        body,
+  1370→        desk,
+  1371→        assignee,
+  1372→        priority,
+  1373→        scheduledFor: deadline ? new Date(`${deadline}T12:00:00`).toISOString() : null,
+  1374→      });
+  1375→      if (story.status === "APPROVED" && updated.status === "DRAFT") {
+  1376→        toast({
+  1377→          title: "Story saved — reverted to Draft",
+  1378→          description:
+  1379→            "Approval applies to the version that was reviewed. Approved copy changed, so the story must be re-approved before handoff.",
+  1380→        });
+  1381→      } else {
+  1382→        toast({ title: "Story saved" });
+  1383→      }
+  1384→      onDone();
+  1385→    } catch (e) {
+  1386→      toast({
+  1387→        title: "Save failed",
+  1388→        description: e instanceof Error ? e.message : "Unknown error",
+  1389→        variant: "destructive",
+  1390→      });
+  1391→    } finally {
+  1392→      setBusy(false);
+  1393→    }
+  1394→  };
+  1395→
+  1396→  return (
+  1397→    <div className="space-y-4">
+  1398→      <div className="space-y-1.5">
+  1399→        <Label htmlFor="edit-title">Headline</Label>
+  1400→        <Input id="edit-title" value={title} onChange={(e) => setTitle(e.target.value)} />
+  1401→      </div>
+  1402→      <div className="space-y-1.5">
+  1403→        <Label htmlFor="edit-summary">Standfirst / summary</Label>
+  1404→        <Textarea id="edit-summary" rows={2} value={summary} onChange={(e) => setSummary(e.target.value)} />
+  1405→      </div>
+  1406→      <div className="space-y-1.5">
+  1407→        <Label htmlFor="edit-body">Body</Label>
+  1408→        <Textarea
+  1409→          id="edit-body"
+  1410→          rows={10}
+  1411→          value={body}
+  1412→          onChange={(e) => setBody(e.target.value)}
+  1413→          className="font-serif text-[15px] leading-relaxed"
+  1414→        />
+  1415→      </div>
+  1416→      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+  1417→        <div className="space-y-1.5">
+  1418→          <Label>Desk</Label>
+  1419→          <Select value={desk} onValueChange={setDesk}>
+  1420→            <SelectTrigger>
+  1421→              <SelectValue />
+  1422→            </SelectTrigger>
+  1423→            <SelectContent>
+  1424→              {DESKS.map((d) => (
+  1425→                <SelectItem key={d} value={d}>
+  1426→                  {d}
+  1427→                </SelectItem>
+  1428→              ))}
+  1429→            </SelectContent>
+  1430→          </Select>
+  1431→        </div>
+  1432→        <div className="space-y-1.5">
+  1433→          <Label htmlFor="edit-assignee">Desk editor</Label>
+  1434→          <div className="relative">
+  1435→            <UserRound className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+  1436→            <Input
+  1437→              id="edit-assignee"
+  1438→              value={assignee}
+  1439→              onChange={(e) => setAssignee(e.target.value)}
+  1440→              placeholder="Unassigned"
+  1441→              className="pl-8"
+  1442→            />
+  1443→          </div>
+  1444→        </div>
+  1445→        <div className="space-y-1.5">
+  1446→          <Label>Priority</Label>
+  1447→          <Select value={priority} onValueChange={setPriority}>
+  1448→            <SelectTrigger>
+  1449→              <SelectValue />
+  1450→            </SelectTrigger>
+  1451→            <SelectContent>
+  1452→              {PRIORITIES.map((p) => (
+  1453→                <SelectItem key={p} value={p}>
+  1454→                  {p}
+  1455→                </SelectItem>
+  1456→              ))}
+  1457→            </SelectContent>
+  1458→          </Select>
+  1459→        </div>
+  1460→        <div className="space-y-1.5">
+  1461→          <Label htmlFor="edit-deadline">Publish deadline</Label>
+  1462→          <Input
+  1463→            id="edit-deadline"
+  1464→            type="date"
+  1465→            value={deadline}
+  1466→            onChange={(e) => setDeadline(e.target.value)}
+  1467→          />
+  1468→        </div>
+  1469→      </div>
+  1470→      <div className="flex justify-end gap-2">
+  1471→        <Button variant="outline" onClick={onDone} disabled={busy}>
+  1472→          Cancel
+  1473→        </Button>
+  1474→        <Button onClick={save} disabled={busy}>
+  1475→          {busy ? "Saving…" : "Save Changes"}
+  1476→        </Button>
+  1477→      </div>
+  1478→    </div>
+  1479→  );
+  1480→}
+  1481→
+  1482→// ---------------------------------------------------------------------------
+  1483→// New story dialog
+  1484→// ---------------------------------------------------------------------------
+  1485→
+  1486→function NewStoryDialog({
+  1487→  open,
+  1488→  onOpenChange,
+  1489→  onCreated,
+  1490→}: {
+  1491→  open: boolean;
+  1492→  onOpenChange: (v: boolean) => void;
+  1493→  onCreated: (id: string) => void;
+  1494→}) {
+  1495→  const createStory = useNewsroom((s) => s.createStory);
+  1496→  const { toast } = useToast();
+  1497→  const [title, setTitle] = useState("");
+  1498→  const [desk, setDesk] = useState<string>("City Hall");
+  1499→  const [author, setAuthor] = useState("");
+  1500→  const [priority, setPriority] = useState("NORMAL");
+  1501→  const [deadline, setDeadline] = useState("");
+  1502→  const [busy, setBusy] = useState(false);
+  1503→
+  1504→  const create = async () => {
+  1505→    setBusy(true);
+  1506→    try {
+  1507→      const story = await createStory({
+  1508→        title,
+  1509→        desk,
+  1510→        author: author || undefined,
+  1511→        priority,
+  1512→        scheduledFor: deadline ? new Date(`${deadline}T12:00:00`).toISOString() : null,
+  1513→      });
+  1514→      toast({ title: "Story created in Draft" });
+  1515→      onCreated(story.id);
+  1516→      onOpenChange(false);
+  1517→      setTitle("");
+  1518→      setAuthor("");
+  1519→      setPriority("NORMAL");
+  1520→      setDeadline("");
+  1521→      setDesk("City Hall");
+  1522→    } catch (e) {
+  1523→      toast({
+  1524→        title: "Could not create story",
+  1525→        description: e instanceof Error ? e.message : "Unknown error",
+  1526→        variant: "destructive",
+  1527→      });
+  1528→    } finally {
+  1529→      setBusy(false);
+  1530→    }
+  1531→  };
+  1532→
+  1533→  return (
+  1534→    <Dialog open={open} onOpenChange={onOpenChange}>
+  1535→      <DialogContent className="max-w-lg">
+  1536→        <DialogHeader>
+  1537→          <DialogTitle className="font-headline">New story</DialogTitle>
+  1538→          <DialogDescription>
+  1539→            Starts as a Draft on the selected desk. Add body copy in the editor.
+  1540→          </DialogDescription>
+  1541→        </DialogHeader>
+  1542→        <div className="space-y-4">
+  1543→          <div className="space-y-1.5">
+  1544→            <Label htmlFor="new-title">Headline *</Label>
+  1545→            <Input
+  1546→              id="new-title"
+  1547→              value={title}
+  1548→              onChange={(e) => setTitle(e.target.value)}
+  1549→              placeholder="e.g. Council Committee Advances Stadium Financing Plan"
+  1550→            />
+  1551→          </div>
+  1552→          <div className="grid gap-4 sm:grid-cols-2">
+  1553→            <div className="space-y-1.5">
+  1554→              <Label>Desk</Label>
+  1555→              <Select value={desk} onValueChange={setDesk}>
+  1556→                <SelectTrigger>
+  1557→                  <SelectValue />
+  1558→                </SelectTrigger>
+  1559→                <SelectContent>
+  1560→                  {DESKS.map((d) => (
+  1561→                    <SelectItem key={d} value={d}>
+  1562→                      {d}
+  1563→                    </SelectItem>
+  1564→                  ))}
+  1565→                </SelectContent>
+  1566→              </Select>
+  1567→            </div>
+  1568→            <div className="space-y-1.5">
+  1569→              <Label>Priority</Label>
+  1570→              <Select value={priority} onValueChange={setPriority}>
+  1571→                <SelectTrigger>
+  1572→                  <SelectValue />
+  1573→                </SelectTrigger>
+  1574→                <SelectContent>
+  1575→                  {PRIORITIES.map((p) => (
+  1576→                    <SelectItem key={p} value={p}>
+  1577→                      {p}
+  1578→                    </SelectItem>
+  1579→                  ))}
+  1580→                </SelectContent>
+  1581→              </Select>
+  1582→            </div>
+  1583→          </div>
+  1584→          <div className="space-y-1.5">
+  1585→            <Label htmlFor="new-author">Author / byline</Label>
+  1586→            <Input
+  1587→              id="new-author"
+  1588→              value={author}
+  1589→              onChange={(e) => setAuthor(e.target.value)}
+  1590→              placeholder="Newsroom Staff"
+  1591→            />
+  1592→          </div>
+  1593→          <div className="space-y-1.5">
+  1594→            <Label htmlFor="new-deadline">Publish deadline (optional)</Label>
+  1595→            <Input
+  1596→              id="new-deadline"
+  1597→              type="date"
+  1598→              value={deadline}
+  1599→              onChange={(e) => setDeadline(e.target.value)}
+  1600→            />
+  1601→          </div>
+  1602→        </div>
+  1603→        <DialogFooter>
+  1604→          <Button variant="outline" onClick={() => onOpenChange(false)}>
+  1605→            Cancel
+  1606→          </Button>
+  1607→          <Button onClick={create} disabled={title.trim().length < 4 || busy}>
+  1608→            {busy ? "Creating…" : "Create Draft"}
+  1609→          </Button>
+  1610→        </DialogFooter>
+  1611→      </DialogContent>
+  1612→    </Dialog>
+  1613→  );
+  1614→}
+  1615→

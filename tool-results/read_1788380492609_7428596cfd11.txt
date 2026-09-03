@@ -1,0 +1,303 @@
+     1→# Newsroom Portal — Worklog
+     2→
+     3→Project: Agent-Native Newsroom Portal (Story Desk / Media Vault / Handoff Engine + WebMCP tools)
+     4→Stack: Next.js 16 (App Router) + TypeScript + Tailwind 4 + shadcn/ui + Prisma (SQLite)
+     5→
+     6→---
+     7→Task ID: 1
+     8→Agent: main (orchestrator)
+     9→Task: Explore project, plan architecture
+    10→
+    11→Work Log:
+    12→- Reviewed scaffold: Next.js 16 + shadcn/ui (all components present), Prisma/SQLite configured at db/custom.db
+    13→- Planned data model: Story, MediaAsset, StoryMedia (join w/ primary+caption), Handoff
+    14→- Planned API: /api/stories, /api/stories/[id], /api/stories/[id]/media, /api/media, /api/handoff/{validate,prepare,execute,history}
+    15→- Planned UI: single page, 3 tabs (Story Desk / Media Vault / Handoff Engine), zustand store shares server state
+    16→- Planned WebMCP: register ~14 tools via document.modelContext.registerTool in a client provider
+    17→
+    18→Stage Summary:
+    19→- Architecture fixed: UI -> API -> business logic (src/lib/newsroom/*) -> Prisma; WebMCP tools call the same APIs
+    20→
+    21→---
+    22→Task ID: 3
+    23→Agent: general-purpose (image generation)
+    24→Task: Generate 13 editorial media images into public/media
+    25→
+    26→Work Log:
+    27→- Created /home/z/my-project/public/media directory
+    28→- Batch 1 (4 parallel): council-chamber + city-hall-exterior OK; port-cranes + press-conference failed with HTTP 429 (rate limit)
+    29→- Reduced concurrency to 2 per batch with 5s pauses to avoid 429s
+    30→- Batch 2: retried port-cranes + press-conference -> both OK
+    31→- Batch 3: data-center-servers + data-center-exterior -> OK
+    32→- Batch 4: flood-street + trading-floor -> OK
+    33→- Batch 5: stadium-night + solar-aerial -> OK
+    34→- Batch 6: solar-rooftop + mural-restoration -> OK
+    35→- Batch 7: transit-hub (single) -> OK
+    36→- Verified all 13 files via ls/du; all >= ~95KB (threshold 20KB), no further retries needed
+    37→
+    38→Stage Summary:
+    39→- public/media/council-chamber.png — 187 KB (191,625 B)
+    40→- public/media/city-hall-exterior.png — 184 KB (188,570 B)
+    41→- public/media/port-cranes.png — 163 KB (166,971 B)
+    42→- public/media/press-conference.png — 93 KB (94,763 B)
+    43→- public/media/data-center-servers.png — 177 KB (181,550 B)
+    44→- public/media/data-center-exterior.png — 167 KB (170,786 B)
+    45→- public/media/flood-street.png — 146 KB (149,375 B)
+    46→- public/media/trading-floor.png — 155 KB (159,162 B)
+    47→- public/media/stadium-night.png — 188 KB (192,826 B)
+    48→- public/media/solar-aerial.png — 232 KB (237,599 B)
+    49→- public/media/solar-rooftop.png — 160 KB (163,494 B)
+    50→- public/media/mural-restoration.png — 117 KB (119,793 B)
+    51→- public/media/transit-hub.png — 158 KB (161,519 B)
+    52→- Result: 13/13 generated, 0 failures
+    53→
+    54→---
+    55→Task ID: 2,4,5,6,7,8,9,10,11,12,13
+    56→Agent: main (orchestrator)
+    57→Task: Build the complete Agent-Native Newsroom Portal (data layer, API, UI, WebMCP, verification)
+    58→
+    59→Work Log:
+    60→- Prisma schema: Story / MediaAsset / StoryMedia (join with isPrimary+caption) / Handoff; pushed to SQLite (db/custom.db)
+    61→- Business logic layer (src/lib/newsroom/): types.ts (statuses, transitions, DTOs, payload contract), stories.ts (CRUD, enforced status transitions DRAFT→IN_REVIEW→APPROVED/REVISION_REQUESTED, attachments w/ lead-image promotion), media.ts (rights computation PERPETUAL/VALID/EXPIRING_SOON(≤14d)/EXPIRED, search filters, per-asset web rights report), handoff.ts (10-check validation, payload builder, simulated CMS execute, history)
+    62→- REST API under src/app/api/: stories (list/create/detail/patch incl. action:approve + status transitions), stories/[id]/media (attach/detach/patch), media (search/detail/patch/delete), handoff (validate/prepare/execute/history). Errors as structured JSON with proper status codes
+    63→- Seed (prisma/seed.ts): 9 realistic stories across all 5 statuses (2 handoff-ready approved stories, 1 approved with EXPIRED image + valid replacement in vault, published story with historical handoff receipt), 13 media assets w/ mixed licenses (Staff Original / Rights-Managed / Editorial Use Only / CC BY), allowed channels, expiries (2 expired, 1 expiring soon), credit lines
+    64→- Generated 13 photorealistic editorial images into public/media/ (Task 3 subagent)
+    65→- UI (src/components/newsroom/): newsroom-app.tsx (masthead, stat strip, section nav w/ counts, sticky footer), story-desk.tsx (search/filter chips/desk filter, list w/ expired-media warnings, detail w/ workflow quick actions, edit form, attachments grid, attach-from-vault dialog, new-story dialog), media-vault.tsx (filters: query/rights/license/channel, card grid w/ rights badges + hatch overlay for expired, detail dialog w/ full metadata + attach-to-story flow), handoff-engine.tsx (story picker groups, auto-validation checklist, payload JSON viewer w/ syntax highlight + copy, execute w/ confirm dialog, success/blocked panels, handoff history w/ expandable payloads)
+    66→- Zustand store (src/hooks/use-newsroom.ts) as single client state; all views + refresh cycle share it
+    67→- WebMCP: src/types/webmcp.d.ts (global declarations), webmcp-tools.ts (14 tools: find_stories, get_story, create_story, update_story, update_story_status, approve_story, search_media, get_media_metadata, check_media_rights, attach_media_to_story, detach_media_from_story, validate_publication, prepare_web_handoff, execute_web_handoff), webmcp-provider.tsx registers via document.modelContext.registerTool(...); tools call the same REST APIs and emit newsroom:data-changed event so the human UI live-refreshes after agent actions
+    68→- Styling: editorial theme (press-red primary oklch(0.47 0.17 27), warm paper background, Georgia serif headlines, double-rule masthead), expired-hatch overlay, payload-json syntax colors, scrollbar-slim
+    69→- README.md (setup, features, tool table, architecture) + LICENSE (MIT)
+    70→- Lint clean (fixed set-state-in-effect issues, URLSearchParams undefined-coercion bug in query builder)
+    71→
+    72→Stage Summary:
+    73→- E2E verified with agent-browser: golden path (select approved story → validate 10/10 → generate payload → execute → story Published), blocked paths (expired media → media-rights blocker + Open Media Vault hint; non-approved → 3 blockers; illegal transition rejected 409), media attach from vault dialog, story create/edit, cross-tab "Take to Handoff"
+    74→- WebMCP verified via init-script stub of document.modelContext: all 14 tools registered; invoked find_stories/search_media/check_media_rights/validate_publication/prepare/execute/create_story/update_story_status/approve_story — structured results + real mutations confirmed; UI nav counts live-updated after agent-driven publish
+    75→- Responsive verified at 1440px and 390px (mobile nav fits, footer pushed naturally, list/detail stack)
+    76→- Bug fixed during verification: buildQuery now skips undefined params (was sending ?query=undefined and returning empty results for agent tools)
+    77→- DB reseeded to pristine demo state after testing (bun prisma/seed.ts)
+    78→
+    79→---
+    80→Task ID: 14
+    81→Agent: main (orchestrator)
+    82→Task: QA assessment via agent-browser, bug fixes, new features, styling polish
+    83→
+    84→Work Log:
+    85→- Reviewed worklog + source tree; confirmed a later phase had added timeline, replace-media and reader-preview features (16 WebMCP tools incl. replace_story_media, get_story_history)
+    86→- BUG (critical): Handoff Engine tab crashed on open — ReferenceError "Cannot access 'story' before initialization" (handoff-engine.tsx:74, TDZ: expiredMediaId referenced `story` 11 lines before its const declaration). Fixed by reordering derivation after the declaration. Verified tab renders + golden/blocked paths work post-fix
+    87→- QA via agent-browser: golden path (select approved story → auto-validate 10/10 → payload WEB-ref generated → confirm dialog → execute → Published, all counters + history update), blocked path (expired-media story → 1 blocker, remediation panel "Replace expired media" → vault picker excludes expired → replace → auto re-validation passes), Reader Preview dialog, WebMCP registration (all tools), agent-driven end-to-end chain (create → status transitions → approve → failed prepare with clear check errors → remediation → attach → prepare → execute → published), error paths (missing ids, invalid inputs all return structured {ok:false, error}), UI/agent shared-state parity, mobile 390px layout
+    88→- Added window.__NEWSROOM_WEBMCP_TOOLS__ registry in webmcp-provider for runtime observability/QA
+    89→- FIX (agent UX): search_media with rightsStatus=VALID returned only 4 assets (PERPETUAL excluded — technically correct but an agent footgun). Added "USABLE" umbrella status (= VALID or PERPETUAL, "publishable today") to the tool; vault UI gained a matching "Usable now" filter option
+    90→- FEATURE (editorial guardrail): editing approved copy (headline/standfirst/body) now reverts an APPROVED story to DRAFT — approval applies to the reviewed version. Implemented in updateStory (stories.ts) with STATUS_CHANGED timeline event; UI edit form shows explanatory toast; documented in update_story tool description. Verified via UI (toast + timeline + badge) and via agent tool chain (approve → edit → status DRAFT)
+    91→- FEATURE (follow-up pitch): duplicate_story business logic + POST /api/stories/[id]/duplicate route + store action + "Follow-up" button in story detail (auto-selects the new Draft, toast, timeline event "Pitched as a follow-up…") + new duplicate_story WebMCP tool. Verified via UI and tool (clone title "(Follow-up)", Draft, clean media/deadline)
+    92→- FEATURE: deadline awareness — new deadlineState() helper (past / soon ≤48h); list items show amber "due soon" chip alongside existing red "past due"; detail badge styled amber for due-soon
+    93→- FEATURE: "Copy credit" button in media detail dialog (clipboard + toast)
+    94→- STYLING: status filter chips now wrap (no truncation) with active:scale press feedback and shadow; story cards get group hover headline tint + active scale; media cards get focus-visible ring; masthead stat strip gets hairline dividers; empty states in both list panes upgraded with icon + "Clear filters" recovery button
+    95→- Re-seeded DB to pristine demo state after testing; post-reseed smoke test: approved stories validate (2 valid golden-path + 1 expired-media blocked-path story as designed)
+    96→- README updated (17 tools table incl. get_story_history/replace_story_media/duplicate_story, new features documented)
+    97→- Lint clean; no browser errors; dev.log clean
+    98→
+    99→Stage Summary:
+   100→- Critical Handoff Engine crash fixed; app verified end-to-end at 1440px + 390px
+   101→- 17 WebMCP tools now registered (added duplicate_story); search_media has agent-friendly USABLE status
+   102→- New editorial guardrail (approved-copy edit → Draft reversion) + follow-up pitching + deadline badges + copy-credit + filter-recovery UX
+   103→- Remaining risks: none known; seed dates are fixed (2026 demo dates — "due soon"/"past due" states will drift as real time moves past seeded deadlines)
+   104→- Recommended next steps: (a) optional dark-mode audit of editorial palette, (b) pagination/virtualization if story count grows, (c) consider per-desk board view
+   105→
+   106→---
+   107→Task ID: 15
+   108→Agent: main (orchestrator)
+   109→Task: QA assessment via agent-browser, bug fixes (mobile overflow + hydration), new features (dark mode, board view, shortcuts, desk dots), styling polish
+   110→
+   111→Work Log:
+   112→- Reviewed worklog + source; app had 17 WebMCP tools, all three tabs functional from prior rounds
+   113→- QA sweep via agent-browser found 2 real bugs:
+   114→  - BUG (critical, mobile): horizontal overflow at 390px (document 442px). Root cause: story-detail workflow-actions row contained an ml-auto flex group (Follow-up / Reader Preview / Edit Story, 385px, whitespace-nowrap buttons) wider than the 356px card; as one rigid flex item it wrapped as a block and overflowed the implicit grid track. Fixed with ml-auto + max-w-full + flex-wrap + justify-end on the group; added min-w-0 to both grid sections (story list + detail) as track-blowout defense. Verified scrollWidth 390 == clientWidth 390 with detail open
+   115→  - BUG: React hydration mismatch console error (Base UI/Radix Select aria-controls id drifted between server and client render, also counted as "1 Issue" in the Next dev overlay). Fixed by mounting the three data-driven panes only after hydration via useSyncExternalStore-based gate (lint-clean; set-state-in-effect rule rejects the naive useState+useEffect mount flag), with a new editorial skeleton loading state mirroring the two-pane layout
+   116→  - Follow-up hydration fix: ThemeToggle aria-label/title derived from resolvedTheme differed between SSR and client — replaced with theme-independent labels ("Toggle day/night edition"); icons are CSS-driven (hidden dark:block) so no theme-derived attributes render
+   117→- FEATURE (dark mode, "night edition"): added ThemeProvider (next-themes, attribute=class, default light, no system) in src/components/theme-provider.tsx + layout.tsx; Sun/Moon toggle in the top strip; full dark palette audit of globals.css (warm charcoal oklch surfaces, brightened press-red primary 0.715 0.145 27, tuned muted/border/input/ring/destructive); dark: variants applied to every hardcoded color across ui-primitives (status + rights badges incl. inverted PUBLISHED/PERPETUAL), story-desk (priority/deadline chips, expired rows), handoff-engine (checklist panels, result panels, step badges, history chips), media-vault (warn panels, expiry text), reader-preview (full article typography), story-timeline (event badges); dark variants for expired-hatch, scrollbar-slim, focus ring now uses var(--primary); payload-json syntax colors made theme-constant (code block always sits on bg-stone-950 so bright palette is correct in both modes)
+   118→- FEATURE (desk board view): new List/Board segmented toggle in Story Desk header; board renders five run-order columns (Draft/In Review/Revision/Approved/Published) with double-rule column headers, StatusDot + count; compact BoardCards show serif headline, DeskDot + desk, priority chip, media count, expired/past-due/due-soon warnings and an inline next-step quick action (Submit -> In Review, Approve, Resubmit -> In Review, Take to Handoff) wired through the same store actions with toasts; card click opens the story in list view; board respects search/status/desk filters; skeleton loading state
+   119→- FEATURE (keyboard shortcuts): global keydown in newsroom-app — 1/2/3 switch sections, "/" jumps to Story Desk + focuses search input; ignored while typing in inputs/textareas/selects/contentEditable, with modifiers held, or when a dialog is open; footer now shows kbd hints
+   120→- FEATURE (desk color coding): DeskDot component in ui-primitives with warm per-desk hues (City Hall red, Business amber, Tech teal, Climate emerald, Sports orange, Culture violet); rendered in story list rows, board cards and detail desk badge
+   121→- STYLING polish: mount skeleton, dark top strip/footer (bg-stone-950), board column rhythm classes (.board-column, .board-column-head), payload viewer contrast fix
+   122→- Verification via agent-browser: zero console errors after reloads (hydration error + "1 Issue" dev-overlay badge gone); dark mode verified on desk/vault/handoff at 1280px; board quick-action Approve moved Museum story In Review -> Approved with toast + live counters; keyboard shortcuts 1/2/3// all verified; mobile 390px detail actions wrap cleanly with no overflow; UI golden path re-verified end-to-end (Port Throughput -> validate 10/10 -> payload WEB-2026… -> confirm -> execute -> Published); REST smoke: 2 approved stories validate PASS, expired-media story fails media-rights as designed; WebMCP registry intact (17 tool names); lint clean
+   123→- DB reseeded to pristine demo state after testing; theme reset to light (day edition) as the default demo look
+   124→- README updated (board view, dark mode, desk dots, shortcuts documented)
+   125→
+   126→Stage Summary:
+   127→- All QA findings fixed: mobile overflow eliminated, zero hydration errors, dev overlay clean
+   128→- App now ships: day/night editions (full dark palette), run-order board view with quick actions, keyboard shortcuts, desk color coding — on top of the existing Story Desk / Media Vault / Handoff Engine + 17 WebMCP tools
+   129→- Remaining risks: seed dates are fixed 2026 demo dates (deadline states will drift as real time passes them); desk layout state resets when switching top-level tabs (component unmount), consistent with filters/query behavior
+   130→- Recommended next steps: (a) optional: persist desk layout + filters in the URL query so agent-driven refreshes preserve view state, (b) drag-and-drop between board columns (respecting the transition matrix), (c) reader-preview share links for stakeholders
+   131→
+   132→---
+   133→Task ID: 16
+   134→Agent: main (orchestrator)
+   135→Task: QA round (all stable), new features: URL deep-links, board drag-and-drop, media lightbox, used-in cross-links, payload download
+   136→
+   137→Work Log:
+   138→- Reviewed worklog (Task 15 state stable); QA baseline via agent-browser: 0 console errors, 17 WebMCP tools registered, 9 stories/13 assets, no mobile overflow regression (390==390)
+   139→- FEATURE (URL-persisted view state): new src/hooks/use-url-state.ts — useQueryParam(key, fallback) built on useSyncExternalStore + module-level param cache + history.replaceState (no history spam) + popstate sync; all instances of a key stay in sync across components. Wired: section (?view=desk|vault|handoff) in newsroom-app (nav tabs + keyboard shortcuts + programmatic nav), desk layout (?layout=list|board) and selected story (?story=<id>) in story-desk. Effects: every combination is deep-linkable (e.g. /?view=handoff&layout=board), reloads restore the exact view, and layout/selection no longer reset when switching top-level tabs (fixes the Task-15 "remaining risk"). Fallback values are omitted from the URL for clean links. Verified: press 2 -> ?view=vault; reload -> lands in vault; vault "jump to story" -> ?story=<id>&layout=list on desk
+   140→- FEATURE (board drag-and-drop): BoardCards are HTML5-draggable; columns are drop zones wired to STATUS_TRANSITIONS (imported from the shared business-logic types — same matrix the server enforces). While dragging: legal target columns get an emerald ring, illegal columns dim, empty legal columns show "Drop to move to <stage>". On drop: legal moves go through the same store actions (APPROVED via approveStory, others via setStoryStatus) with toasts + timeline events; illegal drops are rejected with an explanatory toast ("Publishing goes through the Handoff Engine"). BUG fixed during verification: first dragover fired before React flushed the dragstart setState, so preventDefault never ran and Chromium canceled the drop — onDragOver now gates on e.dataTransfer.types.includes("text/plain") (state-independent) instead of component state, and onDrop reads the id from dataTransfer with state fallback. Verified via dispatched DragEvent sequences: Draft->In Review moved the card (board + counts + quick-action updated), Draft->Published rejected with toast; agent-browser's CDP drag harness does not emit drop events (known harness limitation) but the exact event chain is verified
+   141→- FEATURE (media lightbox): zoom button on vault cards (hover reveal, keyboard accessible, stops propagation from the card button) + clickable image in the detail dialog; MediaLightbox is a dark full-size dialog (max-h-68vh image, title, photographer, dimensions, rights badge, credit line, expired-hatch for expired assets)
+   142→- FEATURE (used-in cross-links): MediaDetailDialog now receives usedIn (computed from store stories' media attachments incl. desk) and renders a "Usage — jump to story" list (DeskDot + title + StatusBadge rows); clicking opens that story on the Story Desk (sets ?story=, layout=list so the detail pane is visible, view=desk) and closes the dialog. Verified end-to-end from vault -> desk
+   143→- FEATURE (payload download): "Download" button next to "Copy JSON" in the Handoff payload step — Blob download named <handoffRef>.json with toast. Verified toast "Payload WEB-20260902-2660 downloaded"
+   144→- Verification: lint clean; 0 console errors across all rounds of testing; mobile 390px: no overflow with lightbox open, lightbox metadata wraps; seed integrity smoke after reseed: 3 approved stories, 2 golden-path valid + 1 designed expired-media blocked story; theme left on light (day edition); DB reseeded to pristine demo state
+   145→- README updated (DnD, deep links, lightbox, usage cross-links, payload download)
+   146→
+   147→Stage Summary:
+   148→- View state is now URL-addressable end-to-end; board gains real workflow drag-and-drop backed by the shared transition matrix; vault gains lightbox + story cross-navigation; handoff payload is downloadable
+   149→- Known harness note (not an app bug): agent-browser/CDP synthetic drags do not fire native drop events; DnD verified via dispatched DragEvents exercising the same handlers
+   150→- Remaining risks: unchanged from Task 15 (fixed 2026 seed dates drift over real time)
+   151→- Recommended next steps: (a) popstate-aware breadcrumb/back support is already free via the URL state — consider surfacing a "shared view" affordance (copy link button in the masthead), (b) nested drop reorder within a column (run-order), (c) board column for scheduled-for dates
+   152→
+   153→---
+   154→Task ID: 17
+   155→Agent: main (orchestrator)
+   156→Task: QA round via agent-browser (bug fix), new features (copy-link, stepper, editor filter, board date chips, tool handles), styling polish
+   157→
+   158→Work Log:
+   159→- Reviewed worklog (Task 16 state stable) + dev.log; app was healthy at desktop, 17 WebMCP tools registered
+   160→- QA sweep via agent-browser found 1 real bug:
+   161→  - BUG (critical, mobile): horizontal overflow at 390px on the HANDOFF tab (scrollWidth 576 vs 390; Story Desk was clean). Root cause: the handoff grid `lg:grid-cols-5` sections lacked the `min-w-0` track-blowout defense Task 15 added to story-desk; the "Recent handoffs" rows (mono handoffRef badge + nowrap storyTitle + timestamp) pushed the auto track's min-content to ~560px. Binary-searched by toggling sections/children via eval to isolate. Fixed with `min-w-0` on both grid sections (story picker + workflow pane). Verified 390==390 on desk/vault/handoff (incl. board layout + open detail)
+   162→  - Follow-up mobile polish: with the new editor-filter select added, the search input squeezed to 70px at 390px (no overflow but poor UX); made the filter row `flex-wrap` with `min-w-[160px]` search — input now 210px at 390px with selects wrapping below
+   163→- FEATURE (masthead "Copy view link"): new CopyViewLink button in the top strip (next to theme toggle) copies the current deep-link URL (view/layout/story/filters) with toast + transient check-icon feedback; hydration-safe (icon swap only after copy)
+   164→- FEATURE (workflow stepper): StatusStepper in ui-primitives — Draft → Review → Approved → Published pipeline rendered in every story detail (dashed-rule band under the standfirst). Done stages get emerald ✓ dots, current stage press-red filled dot, future stages numbered muted; REVISION_REQUESTED renders as an orange "in revision" detour chip with the Review stage highlighted; the active dot pulses while the story is In Review / Revision (action awaited). Verified in light + dark editions and across all five statuses
+   165→- FEATURE (editor filter): "All editors" select next to the desk filter in Story Desk; options derived from story assignees; combined with status/desk/query filters; empty-state "Clear filters" now resets it too. Matches the `assignee` param `find_stories` already exposes, so UI and agent surface are at parity
+   166→- FEATURE (reading time): detail meta now shows `1,248 · ≈6 min read` (words @ 220 wpm); reader preview already had its own estimate
+   167→- FEATURE (board scheduled-run chips): BoardCards with a scheduledFor date and no past-due/due-soon warning show a quiet CalendarClock date chip (recommendation (c) from Task 16)
+   168→- FEATURE (selected-story scroll anchor): deep-links/vault cross-links/agent actions that select a story now smooth-scroll the list so the active card is visible (data-story-id + nearest-block scrollIntoView after mount)
+   169→- FEATURE (WebMCP runtime handles): webmcp-provider now also exposes `window.__NEWSROOM_WEBMCP_HANDLES__` (name → callable). Chromium's registerTool() resolves to undefined in the current build, so handles wrap the same tool.execute implementations (native handle preferred if a future build returns one). Verified invocations: find_stories({assignee}) → 2 stories, search_media({rightsStatus:'USABLE'}) → 10 assets, check_media_rights({storyId}) → ok, validate_publication with bad id → {ok:false,error:'Story not found.'}
+   170→- STYLING: first 4 vault cards get `priority` images (kills the Next.js LCP warnings); stepper band + pulse micro-interaction; filter-row responsive wrap; board date chips integrate with existing chip styles; all new components dark-mode audited
+   171→- Verification: lint clean; console clean (no errors/warnings except an anticipated stale parse log from an intermediate edit state, gone after reload); REST smoke: approved story validates 10/10, bad storyId returns structured {ok:false, failedCheckIds:[...]}; WebMCP registry 17 names + 17 handles; screenshots captured (light/dark detail with stepper, vault grid) to download/
+   172→- DB reseeded to pristine demo state (9 stories / 13 assets / 1 handoff receipt) after testing; post-reseed smoke: stats strip 9/13/3/2, 3 approved, tool invocation healthy; theme left on light (day edition)
+   173→- README updated: stepper, editor filter, reading time, board date chips, copy view link, runtime handles documentation
+   174→
+   175→Stage Summary:
+   176→- Mobile overflow regression eliminated (handoff tab now covered by the same grid defense as the desk); filter row wraps gracefully on small screens
+   177→- New: copy view link, workflow stepper with revision detour, editor filter, reading time, board scheduled-run chips, scroll-to-selected, WebMCP tool handles — on top of Story Desk / Media Vault / Handoff Engine + 17 agent tools
+   178→- Known risks: unchanged — fixed 2026 seed dates drift over real time ("due soon"/"past due" states); Chromium WebMCP registerTool() returns undefined so handles are local wrappers (registration itself verified via getTools() + prior init-script stubs)
+   179→- Recommended next steps: (a) nested board-card reorder within a column (run-order), (b) handoff payload diff/changelog between re-preparations, (c) vault: register-new-asset-by-URL flow for agent-supplied imagery
+   180→
+   181→---
+   182→Task ID: 18
+   183→Agent: main (orchestrator)
+   184→Task: QA baseline, bug fixes, new features (register-asset-by-URL, alt-text accessibility guardrail, payload diff, command palette), styling polish
+   185→
+   186→Work Log:
+   187→- Reviewed worklog (Task 17 stable); QA baseline via fresh agent-browser session: 0 page errors, 17 tools + 17 handles, all tabs render, no overflow at 1280px/390px. Historical "Duplicate tool name" errors in the buffer were HMR artifacts (provider already guards with try/catch + removeTool cleanup); clean loads are silent
+   188→- SCHEMA: StoryMedia.altText (String?), MediaAsset.externalUrl (String?), MediaAsset.width/height now nullable (Int? — honest metadata for URL-registered assets); db:push + Prisma client regenerated
+   189→- BUG (critical, dev server): after db:push the long-running dev server kept the OLD Prisma client (API responses silently missing new fields — media-alt-text failed on seeded data). Restarting the managed dev server via .zscripts/dev.sh restored the new client. Note for future rounds: schema migrations require a dev-server restart
+   190→- BUG (fixed): attachment PATCH route always sent isPrimary: false — a caption/alt-only PATCH silently demoted the lead image. Route now passes isPrimary only when explicitly boolean (verified: alt-only PATCH keeps Lead badge)
+   191→- BUG (fixed): ReplaceMediaDialog sent caption: null when the caption field was untouched — the existing caption was CLEARED on replace (contradicting its own "preserved" toast). Now untouched caption = omitted (business logic keeps it)
+   192→- FEATURE (register asset by URL): createMediaAsset business logic (URL/title/photographer validation, unique fileName derivation from URL, license/channel/expiry/credit metadata, MediaError) + POST /api/media + RegisterAssetDialog (live preview with graceful embed-block fallback, required-field gating, channels checkboxes, expiry date, credit section) + vault "Register asset" button + external assets render via new MediaImage primitive (plain <img> for external URLs, next/image for local files — used across vault cards/detail/lightbox, story list, board, reader preview, attachment cards, picker grids) + "External" badge on cards + source URL row in detail
+   193→- FEATURE (alt-text accessibility guardrail): altText end-to-end — attach (API/store/tools), updateAttachment PATCH, AltTextDialog on attachment cards (char counter, amber "missing alt" chip, italic alt preview line), alt inputs in both attach dialogs and ReplaceMediaDialog (alt resets on replace since the image changed — honest for the handoff check), payload alt = altText || caption || title, NEW validation check #11 "media-alt-text" (11 checks now) with remediation panel "Add alt text on the Story Desk" (onOpenStoryDesk wiring), seed updated with altText for all 10 attachments
+   194→- FEATURE (payload diff): payload-memory.ts (sessionStorage, per-story last prepared payload) + diffPayloads (flatten to leaf paths, skip handoffRef/generatedAt) + collapsible PayloadDiffPanel in the payload step (mono rows, red −/green + tinted lines themed for light+dark, green "No content changes" state). Verified: prepare → change caption → re-validate → re-prepare shows "1 field changed vs WEB-… / media[0].caption" with before/after rows
+   195→- FEATURE (command palette): Ctrl/Cmd+K CommandDialog — Sections (with live counts), Jump to story (DeskDot + StatusDot), Open vault asset, Actions (board/list layout, day/night toggle, copy view link). Top strip gained a search+⌘K button; deep-links written via useQueryParam so jumps are URL-addressable
+   196→- FEATURE: vault detail is deep-linkable via ?asset=<id> (palette + post-registration open the dialog through the URL)
+   197→- WebMCP: 19 tools now — added register_media_asset (full licensing metadata incl. channels array + expiry) and update_story_media (caption/altText/isPrimary patch; caption/alt-only never touches the lead flag); attach_media_to_story + replace_story_media accept altText; validate_publication description mentions the alt check. Verified via handles: register (rights VALID w/ expiry), update caption, find_stories
+   198→- STYLING: payload-diff ±rows (oklch red/green, dark variants), alt chips/buttons, register dialog editorial layout, MediaImage fallbacks, vault LCP eager window widened to 8 (kills next/image LCP warning), all new components dark-audited (verified via screenshots)
+   199→- Verification: lint clean; REST smokes (11-check validation: 2 golden 11/11 PASS, expired-media story fails only media-rights; alt cleared → media-alt-text blocks → restored → passes; POST /api/media 201; alt-only PATCH preserves lead); agent-browser E2E (register dialog live preview + submit → toast + ?asset= deep link opens dialog; AltTextDialog flow clears missing-alt chip; palette nav/story/theme all work; golden path execute → Published WEB-…; dark+light screenshots; 0 console errors on clean reloads; 390px overflow clean incl. register dialog + palette open)
+   200→- Dev server note: killed by schema-change restart flow, relaunched via `setsid bash .zscripts/dev.sh` (survives tool sessions); dev.log shows Ready
+   201→- DB reseeded to pristine demo state (9 stories / 13 media / 1 handoff receipt); post-reseed: stats 9/13/3/2, 2 golden stories validate 11/11, theme reset to light; screenshots saved to download/qa-round18/
+   202→- README updated (register-by-URL, alt-text guardrail, payload diff, ⌘K palette, 19-tool table)
+   203→
+   204→Stage Summary:
+   205→- App now ships 19 WebMCP tools, an 11-check accessibility-aware publication gate, agent-supplied imagery registration, payload re-preparation diffs and a ⌘K command palette — on top of Story Desk / Media Vault / Handoff Engine
+   206→- Two real bugs fixed (lead-image demotion on partial PATCH; caption loss on replace) + dev-server stale-Prisma-client trap documented
+   207→- Remaining risks: unchanged from Task 17 — fixed 2026 seed dates drift over real time; external <img> assets depend on the source URL staying reachable (no download); payload diff memory is per-session (sessionStorage), by design
+   208→- Recommended next steps: (a) board-card nested reorder within a column (run-order), (b) alt-text suggestion in payload step (inline editor without leaving the desk), (c) vault bulk license-renewal action for EXPIRING_SOON assets
+   209→
+   210→---
+   211→Task ID: 19
+   212→Agent: main (orchestrator)
+   213→Task: QA round, run-order board sequencing, inline alt-text fix in Handoff, license renewal in vault
+   214→
+   215→Work Log:
+   216→- Reviewed worklog (Task 18 stable, recommendations a/b/c); QA baseline fresh session: 0 errors, 19 tools + handles, stats 9/13/3/2, no overflow at 1280px, board renders — phase stable, proceeded to the three recommended features
+   217→- SCHEMA: Story.runOrder Int @default(0) (position within the status column); db:push + dev-server restart via setsid .zscripts/dev.sh (applied the Task-18 lesson — API served the new field immediately)
+   218→- FEATURE (run-order sequencing, recommendation a):
+   219→  - Business logic: moveStoryInRunOrder(storyId, { beforeStoryId | position: top|bottom }) resequences the whole column 1..n in a transaction and records a new RUN_ORDER_CHANGED timeline event ("Moved to position N of M in the <Stage> run order"); changeStoryStatus now appends the mover to the END of the target column and resequences it densely (no gaps after round-trips)
+   220→  - API: POST /api/stories/[id]/run-order (422 on unknown/self beforeStoryId — both verified)
+   221→  - Board UI: columns sort by runOrder asc then recency; numbered position chip (dark mono circle, top-left) on every board card; same-column DnD reorder — drop ON a card inserts BEFORE it (card-level dragover/drop with stopPropagation only for same-column drags so cross-column drops still bubble to the column), drop on column space sends to bottom, press-red insertion line drawn above the hovered target card; updated board hint copy
+   222→  - Verified via dispatched DragEvents: card 1 → before card 3 reordered correctly (chips re-sequenced 1,2,3); cross-column Draft→In Review still appends at bottom; status round-trip leaves dense 1..n
+   223→- FEATURE (inline alt-text fix, recommendation b): AltTextFixDialog (mount-on-open, state initialized from props — no reset effects) lists every attachment missing alt text with thumbnail + per-asset input + char counter; opened from the Handoff validation remediation panel via "Fix alt text here" (Story Desk link kept as secondary); save-all then auto re-validation. Verified: cleared alt → 1 blocker → fix here → save → "All checks passed"
+   224→- FEATURE (license renewal, recommendation c): renewal box in the vault detail dialog for dated assets — new expiry date input (default +1 year), "+ 1 year" quick button, optional note appended to licenseNotes ("Renewed <date>: <note>"), PATCH /api/media/[id] + store.updateMediaAsset (refreshes media + stories). Verified via UI: expired asset → Rights valid, expiry row + notes updated; renewing the attached solar-aerial re-cleared its story to 11/11 PASS
+   225→- WebMCP: 20 tools — added reorder_story (beforeStoryId or position top/bottom; returns new runOrder); find_stories/get_story summaries now include runOrder. Verified via handles: position 3 → top → runOrder 1
+   226→- STYLING: position chips (themed ring, dark variant), press-red insertion line, renewal box (muted panel, compact controls), alt-fix dialog rows with thumbnails; timeline gained a "Run order" badge (ArrowDownUp, sky tint) for RUN_ORDER_CHANGED; dark audit verified via screenshots
+   227→- Verification: lint clean; REST smokes (reorder semantics, 422 validation, dense resequencing, payload prepare intact with altText-first delivery); browser E2E (board chips + reorder + cross-column, alt-fix loop with auto re-validate, renewal loop incl. story re-validation, reorder_story handle); mobile 390px clean on desk/list, desk/board, vault, handoff; 0 console errors; DB reseeded to pristine (9 stories / 13 media / 1 handoff, runOrder seeded per status); theme reset to light; screenshots in download/qa-round19/
+   228→- README updated (run-order sequencing, license renewal, reorder_story in the 20-tool table)
+   229→
+   230→Stage Summary:
+   231→- The board is now a true run-order board: ordered stages, numbered positions, same-column drag re-sequencing, dense resequencing on every move, agent parity via reorder_story
+   232→- Handoff remediation is self-serve (alt text fixed inline with automatic re-validation) and vault licenses are renewable in place — the three Task-18 recommendations are all delivered
+   233→- Remaining risks: unchanged (fixed 2026 seed dates drift; external asset reachability); board DnD verified via dispatched DragEvents (agent-browser/CDP harness cannot emit native drops — known harness note from Task 16)
+   234→- Recommended next steps: (a) run-order persistence in list view (optional ordering toggle), (b) payload diff across sessions (server-side last-payload persistence instead of sessionStorage), (c) bulk license renewal for multiple EXPIRING_SOON assets from the vault header
+   235→
+   236→---
+   237→Task ID: 20
+   238→Agent: main (orchestrator)
+   239→Task: QA baseline (clean), deliver Task-19 recommendations a/b/c: run-order list toggle, server-side payload diff memory, bulk license renewal + 21st WebMCP tool
+   240→
+   241→Work Log:
+   242→- Reviewed worklog (Task 19 stable, recommendations a/b/c) + dev.log; QA baseline via agent-browser: 0 console errors, 21→(pre-round: 20) tools + handles, all tabs render, no overflow at 1280px/390px — phase stable, proceeded to the three recommended features
+   243→- SCHEMA: new PayloadSnapshot model (storyId @unique, handoffRef, payload JSON, timestamps, story cascade); db:push + Prisma regenerate + dev-server restart via setsid .zscripts/dev.sh (Task-18 lesson applied — fresh client served the new table immediately)
+   244→- FEATURE (server-side payload diff memory, recommendation b):
+   245→  - prepareHandoff now reads the last prepared-but-undelivered payload from PayloadSnapshot, upserts the new one, and returns `previous` alongside { payload, validation }; executeHandoff deletes the snapshot on success (next preparation starts with a clean baseline)
+   246→  - /api/handoff/prepare returns `previous`; client.ts + use-newsroom store thread it through; the Handoff Engine diff panel now diffs against the server snapshot instead of sessionStorage
+   247→  - Deleted payload-memory.ts; moved the pure diff (flatten/diffPayloads/PayloadDiffRow) to src/lib/newsroom/payload-diff.ts (usable server- and client-side)
+   248→  - Verified end-to-end: prepare → hard reload → sessionStorage.clear() → re-prepare still diffs against the previous ref; content edit + re-approval + re-prepare showed "2 fields changed vs previous preparation WEB-…-8BD3" with seo.metaDescription + story.standfirst ± rows. Snapshot table count 0 after execute
+   249→  - WebMCP prepare_web_handoff now returns previousHandoffRef + changesSincePrevious (computed via the shared diff) — agent parity with the UI panel
+   250→- FEATURE (run-order list view, recommendation a):
+   251→  - New Recent / Run-order segmented toggle in the Story Desk header (visible in list layout only — the board is inherently run-order); state deep-linkable via ?sort=recent|run-order (useQueryParam, fallback omitted from URL)
+   252→  - Run-order mode groups the filtered list by workflow stage in canonical order (Draft → … → Published) with editorial group headers (StatusDot + uppercase label + count chip, rule underneath), each stage sorted runOrder asc then recency — the exact board sequence; StoryListItem gained an optional position chip (mono circle overlaid on the thumbnail, light/dark variants); hint line under the list explains re-sequencing happens on the board
+   253→  - Verified: groups Draft:2/In Review:2/Revision:1/Approved:3/Published:1, Approved chips 1-2-3 match board order (Metro Council → Port Throughput → Solar Tariff); URL ?view=desk&sort=run-order restores on reload; mobile 390px clean
+   254→- FEATURE (bulk license renewal, recommendation c):
+   255→  - Business logic bulkRenewLicenses({ mediaIds, expiresAt, note }): validates ids + date (422/404 paths), single $transaction, appends "Renewed <date>: <note>" to each asset's licenseNotes (matching the single-renewal format); new POST /api/media/bulk-renew route; client + store action (refreshes media + stories so attached-story validation updates)
+   256→  - Vault header: amber "Renew licenses (n)" button appears whenever EXPIRING_SOON + EXPIRED > 0; BulkRenewDialog (mount-on-open, state from props, no reset effects) lists candidates with checkbox, thumbnail (grayscale when expired), RightsBadge + current expiry, select-all/clear, shared new-expiry date (default +1y) + optional note, busy state; success toast "Renewed n licenses"
+   257→  - Verified via UI: dialog pre-checks 3 candidates → renew with note → toast, badges ("n expiring soon"/"n expired") disappear, renew button hides (no candidates), stories with expired attachments re-cleared; REST smokes: 422 empty ids, 422 bad date, 404 unknown id, 200 renewal with correct notes; WebMCP handle renew_media_licenses error path structured {ok:false,error}
+   258→- WebMCP: 21 tools now (added renew_media_licenses; prepare_web_handoff enriched). Verified registry 21 names + 21 handles after fresh load
+   259→- BUG investigated, not an app bug: a transient hydration-mismatch console error appeared mid-round — reproduced ONLY when reloading during git-stash/HMR churn; fresh sessions (baseline code AND round-20 code) on /, /?view=desk&sort=run-order and reloads are consistently 0 errors. Matches the Task-18 "HMR artifacts, clean loads are silent" note
+   260→- STYLING: segmented sort control matches the existing layout toggle; stage group headers reuse the board's editorial header language; position chips themed for light/dark; renew dialog audited in both editions (screenshots: download/qa-round20/runorder-list-light.png, bulk-renew-dialog.png)
+   261→- Seed: added explicit db.payloadSnapshot.deleteMany() (cascade already covered it — self-documenting); seed dates were already relative (inDays/agoDays) so the old "fixed 2026 dates" risk is gone
+   262→- Verification: lint clean; golden path re-verified end-to-end after the prepare/execute refactor (Metro Council → validate 11/11 → prepare WEB-…-9996 → execute → Published WEB-…-BA66, snapshot cleared); mobile 390px clean on desk/run-order, vault + renew dialog open, handoff; dark mode audited for all new surfaces; DB reseeded to pristine (9 stories / 13 media / 1 handoff receipt, 3 dated-attention assets, 3 approved incl. 2 golden-path); post-reseed smoke: stats 9/13/3/2, 21 tools, 0 console errors; theme left on light (day edition)
+   263→- README updated (run-order list view, bulk renewal, server-side payload diff, renew_media_licenses in the 21-tool table)
+   264→
+   265→Stage Summary:
+   266→- All three Task-19 recommendations delivered: the list view can mirror the board's print run, the payload diff now survives reloads/tabs/agent preparations via server-side snapshots (cleared on delivery), and expiring/expired licenses are renewable in bulk from the vault header — each with full agent parity (21 WebMCP tools)
+   267→- Known risks: external <img> assets depend on the source URL staying reachable; payload snapshots live in SQLite (reseed clears them — expected for the demo); harness note unchanged (CDP synthetic drags cannot emit native drops)
+   268→- Recommended next steps: (a) alt-text inline suggestion in the payload step (pre-delivery editor), (b) handoff receipt page/print view for the delivered payload (shareable artifact), (c) desk-level "print run" summary strip (next N stories due to run, from run order + scheduledFor)
+   269→
+   270→---
+   271→Task ID: 21
+   272→Agent: main (orchestrator)
+   273→Task: QA baseline (clean) → deliver Task-20 recommendations a/b/c: payload media manifest + inline alt-text suggestions, printable handoff receipt with ?receipt= deep link, desk print-run strip; 22nd WebMCP tool suggest_alt_text
+   274→
+   275→Work Log:
+   276→- Reviewed worklog (Task 20 stable, recommendations a/b/c) + dev.log; QA baseline via agent-browser fresh session: 0 console errors, 21 tools + handles, stats 9/13/3/2, no overflow at 1280px/390px, lint clean — phase stable, proceeded to the three recommended features
+   277→- SERVER (alt-text suggestion, recommendation a):
+   278→  - suggestAltText(storyId, mediaId) in src/lib/newsroom/stories.ts — deterministic: attachment caption → asset description → asset title, first sentence, capped at 140 chars; 404 when not attached, 422 when no source text
+   279→  - GET /api/stories/[id]/media/[mediaId]/suggest-alt (verified 200 + 404 paths)
+   280→- FEATURE (payload media manifest + inline alt editor, recommendation a):
+   281→  - PayloadMediaManifest in handoff-engine.tsx (collapsible in step 2, default open): per payload.media row — thumbnail (MediaImage), PRIMARY/SUPPORTING chip, alt text; accessibility review hint flags alts that verbatim duplicate the caption or asset title ("same as caption/title" amber chips + header badge "n duplicates" / "all distinct") — a real screen-reader anti-pattern, and reachable because validation forces every alt to exist before a payload can be built
+   282→  - Inline editor per row: Edit → textarea + char counter + deterministic "Suggest" (fills the draft, source labeled) + Save & rebuild → updateAttachment then auto doPrepare() so the payload regenerates and the server-side diff shows exactly the alt change (verified: "1 field changed vs previous preparation", media[0].alt row)
+   283→  - BUG fixed mid-round: stale `att` variable reference after a refactor crashed payload generation (Runtime ReferenceError in dev overlay) — caught by the browser screenshot pass, fixed to attachmentFor(m.id)
+   284→- FEATURE (printable handoff receipt, recommendation b):
+   285→  - getHandoffByRef in handoff.ts + GET /api/handoff/[ref] (verified 200 + 404) + api.fetchHandoffByRef
+   286→  - HandoffReceiptDialog: fetches by ref (mount-on-open), editorial sheet — masthead "M" + THE MERIDIAN LEDGER, rotate-2 DELIVERED stamp, reference grid (ref/delivered/target/requestedBy), story block (headline, standfirst, byline, desk·priority, words, slug, scheduledFor), media manifest table (role badge, alt/caption, credit, license), sourceSystem → target footer, preview URL, dotted cut line; collapsible payload JSON (screen only)
+   287→  - Deep-linkable via ?receipt=<ref> (useQueryParam in newsroom-app) — entry points: auto-open after successful execution, "View receipt" button in the result panel, receipt icon on every history row; "Copy link" builds the deep link; dialog close clears the param (verified)
+   288→  - PRINT pipeline (the hard part): agent-browser pdf = real CDP printToPDF (applies @media print). Final architecture: the component portals a clean "print twin" (receipt-print-only) straight to document.body (hidden on screen); @media print hides every body child except that branch via body:has(.receipt-print-only) > *:not(.receipt-print-only):not(:has(.receipt-print-only)). Pitfalls documented along the way: Radix DialogContent translate (Tailwind v4 uses the standalone `translate` property, and Lightning CSS drops `translate: none` AND merges transition/animation resets — unfightable in a dialog), transitions capturing the start value, and the :has self-match trap; the body-level portal twin sidesteps all of them. Verified: receipt-print-v5.pdf renders the full artifact on ONE clean page (screenshot + PDF in download/qa-round21/)
+   289→  - BUG found + fixed (real regression): HandoffReceiptDialog originally took a prop named `ref` — in React 19 string refs are removed, so mounting it threw an unrecoverable error, hydration mismatches and a Fast Refresh full-reload loop; renamed to handoffRef. Fresh browser session now loads with 0 console errors (the earlier "transient hydration" notes in Tasks 18/20 were the same class of stale-session noise)
+   290→- FEATURE (print run strip, recommendation c):
+   291→  - PrintRunStrip in story-desk.tsx: dark label rail ("PRINT RUN / n queued"), header row with "Next up on the run" + "First run <date>" badge (earliest scheduledFor among the queue) + hint copy, horizontally scrollable run of numbered cards (position chip with themed ring, desk dot, scheduledFor color-coded via deadlineState: red past / amber 48h), 2-line headline, media/word meta, hover quick-action Send → Handoff Engine (stopPropagation), "+n" overflow cell, keyboard accessible (role=button + Enter/Space), hidden when no approved stories
+   292→  - Click opens the story on the desk (verified: ?story=… set, detail pane opens); Send jumps to handoff with preselection (verified)
+   293→- WebMCP: 22 tools — added suggest_alt_text (storyId+mediaId → {suggestion, source}); verified via handle: source "caption", suggestion text correct
+   294→- STYLING: editorial double rule under the strip header, themed ring on run-position chips, receipt artifact typography (uppercase tracking, mono refs), amber duplicate chips, manifest row thumbnails, print twin; dark audit passed for strip/manifest/receipt (screenshots 12-15); mobile 390px audited for receipt dialog + strip (flex-wrap fix for desk/date collision on narrow cards; screenshots 11/17)
+   295→- Verification: lint clean; REST smokes (suggest-alt 200/404, handoff-by-ref 200/404, golden validate 11/11 post-reseed); browser E2E (strip interactions, manifest Edit→Suggest→Save&rebuild→diff "1 field changed", execute → receipt auto-open, history receipt icon, ?receipt= deep link on fresh session, close clears param + unmounts twin); print PDF one-pager verified; 0 console errors on fresh loads; DB reseeded to pristine (9 stories / 13 media / 1 handoff receipt); theme left on light; screenshots + receipt-print-v5.pdf in download/qa-round21/
+   296→- README updated (print run strip, media manifest + suggestions, handoff receipt + print pipeline, suggest_alt_text in the 22-tool table)
+   297→
+   298→Stage Summary:
+   299→- The Handoff Engine now closes the loop end-to-end: manifest-level accessibility review with one-click deterministic suggestions pre-delivery, an automatically opened, shareable, genuinely printable receipt per delivery, and agent parity for suggestions (22 WebMCP tools)
+   300→- The desk opens with a live print-run summary — the approved queue in board order with deadline-aware dates and a straight-to-handoff shortcut
+   301→- Remaining risks: print CSS relies on :has() (fine in all current Chromium/Firefox/Safari; no IE-style fallback — acceptable for an internal tool); the receipt print twin is a snapshot at open time (by design — it mirrors the delivered payload); known prior notes unchanged (harness cannot emit native DnD drops)
+   302→- Recommended next steps: (a) receipts index — a "Delivered" filter in the palette/history that lists all receipts with print-all; (b) alt-text suggestion learned per-photographer (reuse phrasing patterns deterministically); (c) run-order "print plan" export (shareable plain-text run sheet from the board)
+   303→

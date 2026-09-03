@@ -1,0 +1,146 @@
+// ---------------------------------------------------------------------------
+// PostgreSQL variant of prisma/schema.prisma — used for Vercel / hosted
+// Postgres deployments. The models are identical to schema.prisma (SQLite);
+// only the `provider` (and this header) differ.
+//
+// When a build runs with a postgres:// DATABASE_URL, scripts/prisma-setup.mjs
+// selects THIS file for `prisma generate`. Keep both files in sync when you
+// change the data model:
+//
+//   DATABASE_URL="postgres://…" npx prisma db push --schema prisma/schema.postgres.prisma
+// ---------------------------------------------------------------------------
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgres"
+  url      = env("DATABASE_URL")
+}
+
+// ---------------------------------------------------------------------------
+// Newsroom data model
+// ---------------------------------------------------------------------------
+
+/// An editorial story moving through the newsroom workflow.
+model Story {
+  id           String    @id @default(cuid())
+  slug         String    @unique
+  title        String
+  summary      String    @default("")
+  body         String    @default("")
+  // DRAFT | IN_REVIEW | REVISION_REQUESTED | APPROVED | PUBLISHED
+  status       String    @default("DRAFT")
+  // City Hall | Business | Tech | Climate | Sports | Culture
+  desk         String    @default("City Hall")
+  author       String
+  assignee     String?
+  priority     String    @default("NORMAL") // LOW | NORMAL | HIGH | URGENT
+  scheduledFor DateTime? // editorial target publish deadline
+  // Position within the story's status column on the run-order board
+  // (lower = higher priority for that stage). Rewritten on board reorders.
+  runOrder     Int       @default(0)
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  publishedAt  DateTime?
+
+  media  StoryMedia[]
+  events StoryEvent[]
+  handoffs Handoff[]
+  payloadSnapshots PayloadSnapshot[]
+}
+
+/// A media asset in the vault (photo / graphic) with licensing metadata.
+model MediaAsset {
+  id            String    @id @default(cuid())
+  fileName      String    @unique
+  title         String
+  description   String    @default("")
+  photographer  String
+  source        String
+  // Staff Original | Rights-Managed | Editorial Use Only | Royalty-Free | Creative Commons BY
+  licenseType   String
+  licenseNotes  String    @default("")
+  // JSON array of allowed channels, e.g. ["web","print","social","broadcast"]
+  allowedChannels String  @default("[\"web\"]")
+  expiresAt     DateTime?
+  creditRequired Boolean  @default(true)
+  creditLine    String    @default("")
+  // For vault assets registered from an external URL (agent-supplied imagery);
+  // null means the file is served locally from /media.
+  externalUrl   String?
+  width         Int?
+  height        Int?
+  format        String    @default("png")
+  sizeKb        Int       @default(0)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  stories StoryMedia[]
+}
+
+/// Join table: media attached to a story (with primary flag and caption).
+model StoryMedia {
+  storyId    String
+  mediaId    String
+  isPrimary  Boolean   @default(false)
+  caption    String?
+  // Accessibility: text alternative read by screen readers and delivered in
+  // the web payload. Editorial guardrail — handoff validation warns when missing.
+  altText    String?
+  attachedAt DateTime  @default(now())
+
+  story Story      @relation(fields: [storyId], references: [id], onDelete: Cascade)
+  media MediaAsset @relation(fields: [mediaId], references: [id], onDelete: Cascade)
+
+  @@id([storyId, mediaId])
+}
+
+/// Story-scoped editorial audit trail (status changes, edits, attachments,
+/// handoffs). Powers the "Timeline" panel on the Story Desk — it records what
+/// happened to a story, whoever (human or agent) did it.
+model StoryEvent {
+  id        String   @id @default(cuid())
+  storyId   String
+  // STATUS_CHANGED | EDITED | MEDIA_ATTACHED | MEDIA_DETACHED | MEDIA_REPLACED | CREATED | HANDOFF_EXECUTED | DEADLINE_SET
+  kind      String
+  message   String
+  actor     String   @default("newsroom-ui")
+  createdAt DateTime @default(now())
+
+  story Story @relation(fields: [storyId], references: [id], onDelete: Cascade)
+
+  @@index([storyId, createdAt])
+}
+
+/// A completed web publishing handoff (simulated CMS delivery).
+model Handoff {
+  id         String   @id @default(cuid())
+  handoffRef String   @unique // e.g. WEB-20250107-4F2A
+  storyId    String
+  // SUCCESS | FAILED
+  status     String
+  target     String   @default("cms-web")
+  payload    String   @default("{}") // JSON payload that was delivered
+  issues     String   @default("[]") // JSON array of issue strings (for failures)
+  createdAt  DateTime @default(now())
+
+  story Story @relation(fields: [storyId], references: [id], onDelete: Cascade)
+}
+
+/// The most recently PREPARED (not yet delivered) web payload per story.
+/// Server-side persistence means a re-preparation in a brand-new browser
+/// session still diffs against the previous draft — unlike the old
+/// sessionStorage memory, the comparison survives reloads, other machines
+/// and agent-driven preparations. Cleared when the payload is delivered.
+model PayloadSnapshot {
+  id         String   @id @default(cuid())
+  storyId    String   @unique
+  handoffRef String
+  payload    String   @default("{}")
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  story Story @relation(fields: [storyId], references: [id], onDelete: Cascade)
+}

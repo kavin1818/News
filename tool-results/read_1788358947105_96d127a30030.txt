@@ -1,0 +1,678 @@
+     1→"use client";
+     2→
+     3→import { useEffect, useMemo, useState, type ReactNode } from "react";
+     4→import Image from "next/image";
+     5→import { useToast } from "@/hooks/use-toast";
+     6→import { useNewsroom } from "@/hooks/use-newsroom";
+     7→import {
+     8→  LICENSE_TYPES,
+     9→  type MediaAssetDTO,
+    10→  type RightsStatus,
+    11→} from "@/lib/newsroom/types";
+    12→import { cn } from "@/lib/utils";
+    13→import { Badge } from "@/components/ui/badge";
+    14→import { Button } from "@/components/ui/button";
+    15→import { Skeleton } from "@/components/ui/skeleton";
+    16→import { Input } from "@/components/ui/input";
+    17→import { Label } from "@/components/ui/label";
+    18→import { Checkbox } from "@/components/ui/checkbox";
+    19→import { Separator } from "@/components/ui/separator";
+    20→import {
+    21→  Dialog,
+    22→  DialogContent,
+    23→  DialogDescription,
+    24→  DialogHeader,
+    25→  DialogTitle,
+    26→} from "@/components/ui/dialog";
+    27→import {
+    28→  Select,
+    29→  SelectContent,
+    30→  SelectItem,
+    31→  SelectTrigger,
+    32→  SelectValue,
+    33→} from "@/components/ui/select";
+    34→import {
+    35→  AlertTriangle,
+    36→  Camera,
+    37→  CheckCircle2,
+    38→  ClipboardCopy,
+    39→  Search,
+    40→  ShieldX,
+    41→  ZoomIn,
+    42→} from "lucide-react";
+    43→import {
+    44→  ChannelChips,
+    45→  DeskDot,
+    46→  RightsBadge,
+    47→  StatusBadge,
+    48→  expiryText,
+    49→  fmtDate,
+    50→} from "./ui-primitives";
+    51→import { useQueryParam } from "@/hooks/use-url-state";
+    52→
+    53→// ---------------------------------------------------------------------------
+    54→// Media Vault
+    55→// ---------------------------------------------------------------------------
+    56→
+    57→export function MediaVault() {
+    58→  const media = useNewsroom((s) => s.media);
+    59→  const stories = useNewsroom((s) => s.stories);
+    60→  const loading = useNewsroom((s) => s.mediaLoading);
+    61→  const [query, setQuery] = useState("");
+    62→  const [rights, setRights] = useState("any");
+    63→  const [license, setLicense] = useState("any");
+    64→  const [channel, setChannel] = useState("any");
+    65→  const [detailId, setDetailId] = useState<string | null>(null);
+    66→  const [lightboxId, setLightboxId] = useState<string | null>(null);
+    67→
+    68→  // Cross-tab navigation: open a story on the desk straight from the vault.
+    69→  // Switches to the list layout so the story's detail pane is visible.
+    70→  const [, setViewParam] = useQueryParam("view", "desk");
+    71→  const [, setStoryParam] = useQueryParam("story", "");
+    72→  const [, setLayoutParam] = useQueryParam("layout", "list");
+    73→  const openStoryOnDesk = (storyId: string) => {
+    74→    setStoryParam(storyId);
+    75→    setLayoutParam("list");
+    76→    setViewParam("desk");
+    77→    setDetailId(null);
+    78→  };
+    79→
+    80→  const filtered = useMemo(() => {
+    81→    const q = query.trim().toLowerCase();
+    82→    return media.filter((m) => {
+    83→      if (rights === "USABLE") {
+    84→        if (m.rights.status !== "VALID" && m.rights.status !== "PERPETUAL") return false;
+    85→      } else if (rights !== "any" && m.rights.status !== rights) {
+    86→        return false;
+    87→      }
+    88→      if (license !== "any" && m.licenseType !== license) return false;
+    89→      if (channel !== "any" && !m.allowedChannels.includes(channel)) return false;
+    90→      if (q) {
+    91→        const hay = `${m.title} ${m.description} ${m.photographer} ${m.source} ${m.fileName}`.toLowerCase();
+    92→        if (!hay.includes(q)) return false;
+    93→      }
+    94→      return true;
+    95→    });
+    96→  }, [media, query, rights, license, channel]);
+    97→
+    98→  const expiredCount = media.filter((m) => m.rights.status === "EXPIRED").length;
+    99→  const expiringCount = media.filter((m) => m.rights.status === "EXPIRING_SOON").length;
+   100→
+   101→  const detail = media.find((m) => m.id === detailId) ?? null;
+   102→  const zoomAsset = media.find((m) => m.id === lightboxId) ?? null;
+   103→
+   104→  return (
+   105→    <div className="rise-in">
+   106→      <div className="mb-5 flex flex-wrap items-end justify-between gap-3">
+   107→        <div>
+   108→          <h2 className="font-headline text-2xl font-bold">Media Vault</h2>
+   109→          <p className="text-sm text-muted-foreground">
+   110→            Photographs with licensing, usage rights and attribution requirements.
+   111→          </p>
+   112→        </div>
+   113→        <div className="flex flex-wrap items-center gap-2 text-xs">
+   114→          <Badge variant="outline" className="gap-1 bg-card">
+   115→            <Camera className="h-3 w-3" /> {media.length} assets
+   116→          </Badge>
+   117→          {expiringCount > 0 && (
+   118→            <Badge variant="outline" className="gap-1 border-amber-300 bg-amber-50 text-amber-800 dark:border-amber-800 dark:bg-amber-950/50 dark:text-amber-300">
+   119→              <AlertTriangle className="h-3 w-3" /> {expiringCount} expiring soon
+   120→            </Badge>
+   121→          )}
+   122→          {expiredCount > 0 && (
+   123→            <Badge variant="outline" className="gap-1 border-red-300 bg-red-50 text-red-700 dark:border-red-800 dark:bg-red-950/50 dark:text-red-300">
+   124→              <ShieldX className="h-3 w-3" /> {expiredCount} expired
+   125→            </Badge>
+   126→          )}
+   127→        </div>
+   128→      </div>
+   129→
+   130→      {/* filters */}
+   131→      <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+   132→        <div className="relative">
+   133→          <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+   134→          <Input
+   135→            value={query}
+   136→            onChange={(e) => setQuery(e.target.value)}
+   137→            placeholder="Search titles, photographers, sources…"
+   138→            className="pl-8"
+   139→            aria-label="Search media"
+   140→          />
+   141→        </div>
+   142→        <Select value={rights} onValueChange={setRights}>
+   143→          <SelectTrigger aria-label="Filter by rights status">
+   144→            <SelectValue placeholder="Rights status" />
+   145→          </SelectTrigger>
+   146→          <SelectContent>
+   147→            <SelectItem value="any">Any rights status</SelectItem>
+   148→            <SelectItem value="USABLE">Usable now (valid or perpetual)</SelectItem>
+   149→            <SelectItem value="VALID">Rights valid (dated)</SelectItem>
+   150→            <SelectItem value="EXPIRING_SOON">Expiring soon</SelectItem>
+   151→            <SelectItem value="EXPIRED">Expired</SelectItem>
+   152→            <SelectItem value="PERPETUAL">Perpetual (no expiry)</SelectItem>
+   153→          </SelectContent>
+   154→        </Select>
+   155→        <Select value={license} onValueChange={setLicense}>
+   156→          <SelectTrigger aria-label="Filter by license type">
+   157→            <SelectValue placeholder="License" />
+   158→          </SelectTrigger>
+   159→          <SelectContent>
+   160→            <SelectItem value="any">Any license</SelectItem>
+   161→            {LICENSE_TYPES.map((l) => (
+   162→              <SelectItem key={l} value={l}>
+   163→                {l}
+   164→              </SelectItem>
+   165→            ))}
+   166→          </SelectContent>
+   167→        </Select>
+   168→        <Select value={channel} onValueChange={setChannel}>
+   169→          <SelectTrigger aria-label="Filter by channel">
+   170→            <SelectValue placeholder="Channel" />
+   171→          </SelectTrigger>
+   172→          <SelectContent>
+   173→            <SelectItem value="any">Any channel</SelectItem>
+   174→            <SelectItem value="web">Web</SelectItem>
+   175→            <SelectItem value="print">Print</SelectItem>
+   176→            <SelectItem value="social">Social</SelectItem>
+   177→            <SelectItem value="broadcast">Broadcast</SelectItem>
+   178→          </SelectContent>
+   179→        </Select>
+   180→      </div>
+   181→
+   182→      {/* grid */}
+   183→      {loading && media.length === 0 ? (
+   184→        <div className="mt-5 grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+   185→          {[0, 1, 2, 3, 4, 5, 6, 7].map((i) => (
+   186→            <div key={i} className="overflow-hidden rounded-lg border bg-card">
+   187→              <Skeleton className="aspect-[3/2] rounded-none" />
+   188→              <div className="space-y-2 p-3">
+   189→                <Skeleton className="h-3.5 w-4/5" />
+   190→                <Skeleton className="h-3 w-1/2" />
+   191→                <div className="flex items-center justify-between pt-1">
+   192→                  <Skeleton className="h-4 w-20" />
+   193→                  <Skeleton className="h-3 w-16" />
+   194→                </div>
+   195→              </div>
+   196→            </div>
+   197→          ))}
+   198→        </div>
+   199→      ) : filtered.length === 0 ? (
+   200→        <div className="mt-6 flex flex-col items-center gap-3 rounded-lg border border-dashed py-16 text-center">
+   201→          <Camera className="h-8 w-8 text-muted-foreground/40" />
+   202→          <p className="text-sm text-muted-foreground">No assets match these filters.</p>
+   203→          {(query || rights !== "any" || license !== "any" || channel !== "any") && (
+   204→            <Button
+   205→              size="sm"
+   206→              variant="outline"
+   207→              onClick={() => {
+   208→                setQuery("");
+   209→                setRights("any");
+   210→                setLicense("any");
+   211→                setChannel("any");
+   212→              }}
+   213→            >
+   214→              Clear filters
+   215→            </Button>
+   216→          )}
+   217→        </div>
+   218→      ) : (
+   219→        <div className="mt-5 grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+   220→          {filtered.map((m, i) => (
+   221→            <MediaCard
+   222→              key={m.id}
+   223→              asset={m}
+   224→              eager={i < 4}
+   225→              onOpen={() => setDetailId(m.id)}
+   226→              onZoom={() => setLightboxId(m.id)}
+   227→            />
+   228→          ))}
+   229→        </div>
+   230→      )}
+   231→
+   232→      {detail && (
+   233→        <MediaDetailDialog
+   234→          asset={detail}
+   235→          stories={stories.map((s) => ({ id: s.id, title: s.title, status: s.status }))}
+   236→          usedIn={stories
+   237→            .filter((s) => s.media.some((m) => m.mediaId === detail.id))
+   238→            .map((s) => ({ id: s.id, title: s.title, status: s.status, desk: s.desk }))}
+   239→          onOpenStory={openStoryOnDesk}
+   240→          onZoom={() => setLightboxId(detail.id)}
+   241→          onClose={() => setDetailId(null)}
+   242→        />
+   243→      )}
+   244→
+   245→      {zoomAsset && (
+   246→        <MediaLightbox asset={zoomAsset} onClose={() => setLightboxId(null)} />
+   247→      )}
+   248→    </div>
+   249→  );
+   250→}
+   251→
+   252→// ---------------------------------------------------------------------------
+   253→// Card
+   254→// ---------------------------------------------------------------------------
+   255→
+   256→function MediaCard({
+   257→  asset,
+   258→  eager,
+   259→  onOpen,
+   260→  onZoom,
+   261→}: {
+   262→  asset: MediaAssetDTO;
+   263→  /** Above-the-fold cards load eagerly (LCP hint from the framework). */
+   264→  eager?: boolean;
+   265→  onOpen: () => void;
+   266→  onZoom: () => void;
+   267→}) {
+   268→  const expired = asset.rights.status === "EXPIRED";
+   269→  return (
+   270→    <button
+   271→      onClick={onOpen}
+   272→      className="group overflow-hidden rounded-lg border bg-card text-left transition-all hover:-translate-y-0.5 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2"
+   273→    >
+   274→      <div className="relative aspect-[3/2] overflow-hidden bg-muted">
+   275→        <Image
+   276→          src={asset.url}
+   277→          alt={asset.title}
+   278→          fill
+   279→          sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 25vw"
+   280→          priority={eager}
+   281→          loading={eager ? undefined : "lazy"}
+   282→          className={cn(
+   283→            "object-cover transition-transform duration-300 group-hover:scale-[1.03]",
+   284→            expired && "grayscale"
+   285→          )}
+   286→        />
+   287→        {expired && <div className="absolute inset-0 expired-hatch" />}
+   288→        <div className="absolute right-2 top-2">
+   289→          <RightsBadge status={asset.rights.status} />
+   290→        </div>
+   291→        {asset.attachedToCount > 0 && (
+   292→          <div className="absolute bottom-2 left-2">
+   293→            <Badge className="bg-stone-900/80 px-1.5 py-0.5 text-[10px] text-white backdrop-blur dark:bg-stone-900/80">
+   294→              In {asset.attachedToCount} story{asset.attachedToCount > 1 ? "s" : ""}
+   295→            </Badge>
+   296→          </div>
+   297→        )}
+   298→        <span
+   299→          role="button"
+   300→          tabIndex={0}
+   301→          aria-label={`Zoom ${asset.title}`}
+   302→          title="View full size"
+   303→          onClick={(e) => {
+   304→            e.stopPropagation();
+   305→            onZoom();
+   306→          }}
+   307→          onKeyDown={(e) => {
+   308→            if (e.key === "Enter" || e.key === " ") {
+   309→              e.stopPropagation();
+   310→              e.preventDefault();
+   311→              onZoom();
+   312→            }
+   313→          }}
+   314→          className="absolute bottom-2 right-2 flex h-7 w-7 items-center justify-center rounded-md bg-stone-900/70 text-white opacity-0 shadow-sm backdrop-blur transition-all hover:bg-stone-900 focus-visible:opacity-100 group-hover:opacity-100"
+   315→        >
+   316→          <ZoomIn className="h-3.5 w-3.5" />
+   317→        </span>
+   318→      </div>
+   319→      <div className="p-3">
+   320→        <p className="line-clamp-1 font-headline text-[15px] font-semibold">{asset.title}</p>
+   321→        <p className="mt-0.5 line-clamp-1 text-xs text-muted-foreground">
+   322→          {asset.photographer} · {asset.source}
+   323→        </p>
+   324→        <div className="mt-2 flex items-center justify-between gap-2">
+   325→          <Badge variant="outline" className="text-[10px] font-medium">
+   326→            {asset.licenseType}
+   327→          </Badge>
+   328→          <span
+   329→            className={cn(
+   330→              "text-[11px]",
+   331→              expired ? "font-medium text-red-700 dark:text-red-400" : "text-muted-foreground"
+   332→            )}
+   333→          >
+   334→            {expiryText(asset.rights.expiresAt, asset.rights.status)}
+   335→          </span>
+   336→        </div>
+   337→        <Separator className="my-2" />
+   338→        <ChannelChips channels={asset.allowedChannels} />
+   339→      </div>
+   340→    </button>
+   341→  );
+   342→}
+   343→
+   344→// ---------------------------------------------------------------------------
+   345→// Detail dialog
+   346→// ---------------------------------------------------------------------------
+   347→
+   348→function MediaDetailDialog({
+   349→  asset,
+   350→  stories,
+   351→  usedIn,
+   352→  onOpenStory,
+   353→  onZoom,
+   354→  onClose,
+   355→}: {
+   356→  asset: MediaAssetDTO;
+   357→  stories: Array<{ id: string; title: string; status: string }>;
+   358→  usedIn: Array<{ id: string; title: string; status: string; desk: string }>;
+   359→  onOpenStory: (storyId: string) => void;
+   360→  onZoom: () => void;
+   361→  onClose: () => void;
+   362→}) {
+   363→  const attachMedia = useNewsroom((s) => s.attachMedia);
+   364→  const { toast } = useToast();
+   365→  const [storyId, setStoryId] = useState("");
+   366→  const [caption, setCaption] = useState("");
+   367→  const [asPrimary, setAsPrimary] = useState(false);
+   368→  const [busy, setBusy] = useState(false);
+   369→
+   370→  // Reset form each time a new asset is opened
+   371→  useEffect(() => {
+   372→    setStoryId("");
+   373→    setCaption("");
+   374→    setAsPrimary(false);
+   375→  }, [asset.id]);
+   376→
+   377→  const expired = asset.rights.status === "EXPIRED";
+   378→
+   379→  // Stories that don't yet have this asset and aren't published
+   380→  const attachable = stories.filter(
+   381→    (s) => s.status !== "PUBLISHED" && !asset.attachedStoryTitles.includes(s.title)
+   382→  );
+   383→
+   384→  const doAttach = async () => {
+   385→    if (!storyId) return;
+   386→    setBusy(true);
+   387→    try {
+   388→      await attachMedia(storyId, asset.id, {
+   389→        caption: caption.trim() || null,
+   390→        isPrimary: asPrimary,
+   391→      });
+   392→      const storyTitle = stories.find((s) => s.id === storyId)?.title ?? "story";
+   393→      toast({ title: `Attached to "${storyTitle}"` });
+   394→      onClose();
+   395→    } catch (e) {
+   396→      toast({
+   397→        title: "Could not attach media",
+   398→        description: e instanceof Error ? e.message : "Unknown error",
+   399→        variant: "destructive",
+   400→      });
+   401→    } finally {
+   402→      setBusy(false);
+   403→    }
+   404→  };
+   405→
+   406→  return (
+   407→    <Dialog open onOpenChange={(v) => !v && onClose()}>
+   408→      <DialogContent className="max-h-[90vh] max-w-3xl overflow-y-auto scrollbar-slim">
+   409→        <DialogHeader>
+   410→          <DialogTitle className="font-headline pr-6 text-xl">{asset.title}</DialogTitle>
+   411→          <DialogDescription className="flex flex-wrap items-center gap-2 pt-1">
+   412→            <RightsBadge status={asset.rights.status} />
+   413→            <Badge variant="outline">{asset.licenseType}</Badge>
+   414→            <Badge variant="outline">
+   415→              {asset.width}×{asset.height} · {asset.format.toUpperCase()} · {asset.sizeKb} KB
+   416→            </Badge>
+   417→          </DialogDescription>
+   418→        </DialogHeader>
+   419→
+   420→        <div className="grid gap-5 sm:grid-cols-2">
+   421→          {/* image */}
+   422→          <div className="space-y-3">
+   423→            <button
+   424→              type="button"
+   425→              onClick={onZoom}
+   426→              title="View full size"
+   427→              className="group relative block aspect-[7/4] w-full cursor-zoom-in overflow-hidden rounded-lg bg-muted"
+   428→            >
+   429→              <Image
+   430→                src={asset.url}
+   431→                alt={asset.title}
+   432→                fill
+   433→                sizes="(max-width: 640px) 100vw, 480px"
+   434→                className={cn("object-cover transition-transform duration-300 group-hover:scale-[1.02]", expired && "grayscale")}
+   435→                priority
+   436→              />
+   437→              {expired && <div className="absolute inset-0 expired-hatch" />}
+   438→              <span className="absolute bottom-2 right-2 flex h-7 w-7 items-center justify-center rounded-md bg-stone-900/70 text-white opacity-0 shadow-sm backdrop-blur transition-opacity group-hover:opacity-100">
+   439→                <ZoomIn className="h-3.5 w-3.5" />
+   440→              </span>
+   441→            </button>
+   442→            <p className="text-sm leading-relaxed text-muted-foreground">{asset.description}</p>
+   443→            <ChannelChips channels={asset.allowedChannels} className="justify-start" />
+   444→          </div>
+   445→
+   446→          {/* metadata */}
+   447→          <div>
+   448→            {expired && (
+   449→              <div className="mb-3 flex items-start gap-2 rounded-lg border border-red-300 bg-red-50 p-3 text-sm text-red-800 dark:border-red-800 dark:bg-red-950/40 dark:text-red-200">
+   450→                <ShieldX className="mt-0.5 h-4 w-4 shrink-0" />
+   451→                <span>
+   452→                  License expired {fmtDate(asset.rights.expiresAt)} — this asset cannot be handed
+   453→                  off for web publication until replaced or renewed.
+   454→                </span>
+   455→              </div>
+   456→            )}
+   457→            {!expired && asset.rights.status === "EXPIRING_SOON" && (
+   458→              <div className="mb-3 flex items-start gap-2 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-800 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-200">
+   459→                <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+   460→                <span>
+   461→                  License expires in {asset.rights.daysUntilExpiry} day(s) — schedule a renewal
+   462→                  before republishing.
+   463→                </span>
+   464→              </div>
+   465→            )}
+   466→
+   467→            <dl className="space-y-2.5 text-sm">
+   468→              <Row label="Photographer" value={asset.photographer} />
+   469→              <Row label="Source" value={asset.source} />
+   470→              <Row label="License type" value={asset.licenseType} />
+   471→              <Row label="License notes" value={asset.licenseNotes} />
+   472→              <Row
+   473→                label="Expires"
+   474→                value={expiryText(asset.rights.expiresAt, asset.rights.status)}
+   475→                warn={expired}
+   476→              />
+   477→              <Row
+   478→                label="Attribution"
+   479→                value={
+   480→                  asset.creditRequired
+   481→                    ? `Required — ${asset.creditLine || "missing credit line"}`
+   482→                    : "Not required"
+   483→                }
+   484→                warn={asset.creditRequired && !asset.creditLine}
+   485→                extra={
+   486→                  asset.creditLine ? (
+   487→                    <Button
+   488→                      size="sm"
+   489→                      variant="ghost"
+   490→                      className="mt-1 h-7 gap-1.5 px-2 text-xs text-muted-foreground hover:text-foreground"
+   491→                      onClick={async () => {
+   492→                        try {
+   493→                          await navigator.clipboard.writeText(asset.creditLine);
+   494→                          toast({ title: "Credit line copied" });
+   495→                        } catch {
+   496→                          toast({
+   497→                            title: "Could not copy",
+   498→                            description: "Your browser blocked clipboard access.",
+   499→                            variant: "destructive",
+   500→                          });
+   501→                        }
+   502→                      }}
+   503→                    >
+   504→                      <ClipboardCopy className="h-3 w-3" /> Copy credit
+   505→                    </Button>
+   506→                  ) : undefined
+   507→                }
+   508→              />
+   509→              <Row
+   510→                label="Used in"
+   511→                value={
+   512→                  usedIn.length
+   513→                    ? usedIn.map((s) => s.title).join(", ")
+   514→                    : "Not attached to any story"
+   515→                }
+   516→              />
+   517→            </dl>
+   518→
+   519→            {usedIn.length > 0 && (
+   520→              <div className="mt-4">
+   521→                <h4 className="mb-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+   522→                  Usage — jump to story
+   523→                </h4>
+   524→                <ul className="space-y-1.5">
+   525→                  {usedIn.map((s) => (
+   526→                    <li key={s.id}>
+   527→                      <button
+   528→                        type="button"
+   529→                        onClick={() => onOpenStory(s.id)}
+   530→                        title="Open this story on the Story Desk"
+   531→                        className="flex w-full items-center gap-2 rounded-md border bg-card px-2.5 py-1.5 text-left text-xs transition-colors hover:border-foreground/30 hover:bg-accent"
+   532→                      >
+   533→                        <DeskDot desk={s.desk} />
+   534→                        <span className="min-w-0 flex-1 truncate font-medium">{s.title}</span>
+   535→                        <StatusBadge status={s.status} className="scale-90" />
+   536→                      </button>
+   537→                    </li>
+   538→                  ))}
+   539→                </ul>
+   540→              </div>
+   541→            )}
+   542→          </div>
+   543→        </div>
+   544→
+   545→        <Separator />
+   546→
+   547→        {/* attach flow */}
+   548→        {attachable.length === 0 ? (
+   549→          <p className="text-sm text-muted-foreground">
+   550→            This asset is attached to every eligible story (published stories are locked).
+   551→          </p>
+   552→        ) : (
+   553→          <div className="space-y-3">
+   554→            <h4 className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+   555→              Attach to story
+   556→            </h4>
+   557→            {expired && (
+   558→              <p className="flex items-center gap-1.5 text-xs text-red-700 dark:text-red-400">
+   559→                <AlertTriangle className="h-3.5 w-3.5" />
+   560→                Attaching an expired asset is allowed for layout, but the Handoff Engine will block
+   561→                publication.
+   562→              </p>
+   563→            )}
+   564→            <div className="grid gap-3 sm:grid-cols-2">
+   565→              <div className="space-y-1.5">
+   566→                <Label>Story</Label>
+   567→                <Select value={storyId} onValueChange={setStoryId}>
+   568→                  <SelectTrigger aria-label="Choose a story">
+   569→                    <SelectValue placeholder="Choose a story…" />
+   570→                  </SelectTrigger>
+   571→                  <SelectContent>
+   572→                    {attachable.map((s) => (
+   573→                      <SelectItem key={s.id} value={s.id}>
+   574→                        {s.title}
+   575→                      </SelectItem>
+   576→                    ))}
+   577→                  </SelectContent>
+   578→                </Select>
+   579→              </div>
+   580→              <div className="space-y-1.5">
+   581→                <Label htmlFor="attach-caption">Caption</Label>
+   582→                <Input
+   583→                  id="attach-caption"
+   584→                  value={caption}
+   585→                  onChange={(e) => setCaption(e.target.value)}
+   586→                  placeholder="Editorial caption…"
+   587→                />
+   588→              </div>
+   589→            </div>
+   590→            <div className="flex items-center justify-between">
+   591→              <label className="flex items-center gap-2 text-sm">
+   592→                <Checkbox checked={asPrimary} onCheckedChange={(v) => setAsPrimary(v === true)} />
+   593→                Set as lead image
+   594→              </label>
+   595→              <Button onClick={doAttach} disabled={!storyId || busy}>
+   596→                {busy ? "Attaching…" : "Attach to Story"}
+   597→              </Button>
+   598→            </div>
+   599→          </div>
+   600→        )}
+   601→      </DialogContent>
+   602→    </Dialog>
+   603→  );
+   604→}
+   605→
+   606→function Row({
+   607→  label,
+   608→  value,
+   609→  warn,
+   610→  extra,
+   611→}: {
+   612→  label: string;
+   613→  value: string;
+   614→  warn?: boolean;
+   615→  extra?: ReactNode;
+   616→}) {
+   617→  return (
+   618→    <div className="grid grid-cols-[110px_1fr] gap-2">
+   619→      <dt className="text-[11px] uppercase tracking-wide text-muted-foreground">{label}</dt>
+   620→      <dd className={cn("font-medium leading-snug", warn ? "text-red-700 dark:text-red-400" : "")}>
+   621→        {value}
+   622→        {extra}
+   623→      </dd>
+   624→    </div>
+   625→  );
+   626→}
+   627→
+   628→// ---------------------------------------------------------------------------
+   629→// Lightbox — full-size view of an asset
+   630→// ---------------------------------------------------------------------------
+   631→
+   632→function MediaLightbox({ asset, onClose }: { asset: MediaAssetDTO; onClose: () => void }) {
+   633→  const expired = asset.rights.status === "EXPIRED";
+   634→  return (
+   635→    <Dialog open onOpenChange={(v) => !v && onClose()}>
+   636→      <DialogContent className="max-h-[92vh] max-w-5xl overflow-hidden bg-stone-950/95 p-3 text-stone-100 sm:p-4">
+   637→        <DialogHeader className="sr-only">
+   638→          <DialogTitle>{asset.title} — full size</DialogTitle>
+   639→          <DialogDescription>Full-size preview of {asset.title}</DialogDescription>
+   640→        </DialogHeader>
+   641→        <div className="relative flex min-h-0 flex-col gap-3">
+   642→          <div className="relative min-h-0 flex-1 overflow-hidden rounded-md bg-black/40">
+   643→            <Image
+   644→              src={asset.url}
+   645→              alt={asset.title}
+   646→              width={asset.width}
+   647→              height={asset.height}
+   648→              priority
+   649→              className={cn(
+   650→                "mx-auto max-h-[68vh] w-auto max-w-full object-contain",
+   651→                expired && "grayscale"
+   652→              )}
+   653→            />
+   654→            {expired && <div className="absolute inset-0 expired-hatch" />}
+   655→          </div>
+   656→          <div className="flex flex-wrap items-center gap-2 px-1 pb-1 text-xs text-stone-300">
+   657→            <span className="font-headline text-sm font-semibold text-stone-50">{asset.title}</span>
+   658→            <span aria-hidden className="text-stone-500">·</span>
+   659→            <span>{asset.photographer}</span>
+   660→            <span aria-hidden className="text-stone-500">·</span>
+   661→            <span>
+   662→              {asset.width}×{asset.height}
+   663→            </span>
+   664→            <span className="ml-auto flex items-center gap-2">
+   665→              <RightsBadge status={asset.rights.status} />
+   666→              {asset.creditRequired && asset.creditLine && (
+   667→                <span className="hidden max-w-[280px] truncate text-[11px] text-stone-400 sm:inline">
+   668→                  Credit: {asset.creditLine}
+   669→                </span>
+   670→              )}
+   671→            </span>
+   672→          </div>
+   673→        </div>
+   674→      </DialogContent>
+   675→    </Dialog>
+   676→  );
+   677→}
+   678→

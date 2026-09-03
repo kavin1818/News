@@ -1,0 +1,324 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+  --color-sidebar-ring: var(--sidebar-ring);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar: var(--sidebar);
+  --color-chart-5: var(--chart-5);
+  --color-chart-4: var(--chart-4);
+  --color-chart-3: var(--chart-3);
+  --color-chart-2: var(--chart-2);
+  --color-chart-1: var(--chart-1);
+  --color-ring: var(--ring);
+  --color-input: var(--input);
+  --color-border: var(--border);
+  --color-destructive: var(--destructive);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-accent: var(--accent);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-muted: var(--muted);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-secondary: var(--secondary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary: var(--primary);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-popover: var(--popover);
+  --color-card-foreground: var(--card-foreground);
+  --color-card: var(--card);
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+}
+
+:root {
+  --radius: 0.625rem;
+  --background: oklch(0.985 0.003 85);
+  --foreground: oklch(0.16 0.01 60);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.16 0.01 60);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.16 0.01 60);
+  --primary: oklch(0.47 0.17 27);
+  --primary-foreground: oklch(0.985 0.005 85);
+  --secondary: oklch(0.96 0.004 85);
+  --secondary-foreground: oklch(0.205 0.01 60);
+  --muted: oklch(0.955 0.005 85);
+  --muted-foreground: oklch(0.5 0.01 60);
+  --accent: oklch(0.955 0.008 85);
+  --accent-foreground: oklch(0.205 0.01 60);
+  --destructive: oklch(0.577 0.245 27.325);
+  --border: oklch(0.922 0 0);
+  --input: oklch(0.922 0 0);
+  --ring: oklch(0.708 0 0);
+  --chart-1: oklch(0.646 0.222 41.116);
+  --chart-2: oklch(0.6 0.118 184.704);
+  --chart-3: oklch(0.398 0.07 227.392);
+  --chart-4: oklch(0.828 0.189 84.429);
+  --chart-5: oklch(0.769 0.188 70.08);
+  --sidebar: oklch(0.985 0 0);
+  --sidebar-foreground: oklch(0.145 0 0);
+  --sidebar-primary: oklch(0.205 0 0);
+  --sidebar-primary-foreground: oklch(0.985 0 0);
+  --sidebar-accent: oklch(0.97 0 0);
+  --sidebar-accent-foreground: oklch(0.205 0 0);
+  --sidebar-border: oklch(0.922 0 0);
+  --sidebar-ring: oklch(0.708 0 0);
+}
+
+.dark {
+  /* Night edition — warm charcoal ink-on-slate, press-red kept but brightened */
+  --radius: 0.625rem;
+  --background: oklch(0.165 0.005 60);
+  --foreground: oklch(0.93 0.006 85);
+  --card: oklch(0.21 0.006 60);
+  --card-foreground: oklch(0.93 0.006 85);
+  --popover: oklch(0.215 0.006 60);
+  --popover-foreground: oklch(0.93 0.006 85);
+  --primary: oklch(0.715 0.145 27);
+  --primary-foreground: oklch(0.985 0.005 85);
+  --secondary: oklch(0.265 0.007 60);
+  --secondary-foreground: oklch(0.93 0.006 85);
+  --muted: oklch(0.26 0.007 60);
+  --muted-foreground: oklch(0.7 0.009 60);
+  --accent: oklch(0.285 0.009 60);
+  --accent-foreground: oklch(0.95 0.005 85);
+  --destructive: oklch(0.66 0.19 25);
+  --border: oklch(1 0 0 / 12%);
+  --input: oklch(1 0 0 / 15%);
+  --ring: oklch(0.55 0.1 27);
+  --chart-1: oklch(0.646 0.222 41.116);
+  --chart-2: oklch(0.6 0.118 184.704);
+  --chart-3: oklch(0.6 0.1 227);
+  --chart-4: oklch(0.828 0.189 84.429);
+  --chart-5: oklch(0.769 0.188 70.08);
+  --sidebar: oklch(0.21 0.006 60);
+  --sidebar-foreground: oklch(0.93 0.006 85);
+  --sidebar-primary: oklch(0.715 0.145 27);
+  --sidebar-primary-foreground: oklch(0.985 0.005 85);
+  --sidebar-accent: oklch(0.265 0.007 60);
+  --sidebar-accent-foreground: oklch(0.93 0.006 85);
+  --sidebar-border: oklch(1 0 0 / 12%);
+  --sidebar-ring: oklch(0.55 0.1 27);
+}
+
+@theme {
+  --font-serif: Georgia, 'Iowan Old Style', 'Times New Roman', Times, serif;
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+  /* Accessible keyboard focus rings with editorial accent */
+  :focus-visible {
+    outline: 2px solid var(--primary);
+    outline-offset: 2px;
+    border-radius: 2px;
+  }
+}
+
+/* Editorial newsroom texture & helpers */
+.font-headline {
+  font-family: var(--font-serif);
+  letter-spacing: -0.01em;
+}
+
+.masthead-rule {
+  border-bottom: 3px double var(--border);
+}
+
+/* Refined scrollbars for long lists */
+.scrollbar-slim {
+  scrollbar-width: thin;
+  scrollbar-color: oklch(0.8 0.01 60) transparent;
+}
+.dark .scrollbar-slim {
+  scrollbar-color: oklch(0.42 0.01 60) transparent;
+}
+.scrollbar-slim::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+.scrollbar-slim::-webkit-scrollbar-track {
+  background: transparent;
+}
+.scrollbar-slim::-webkit-scrollbar-thumb {
+  background-color: oklch(0.82 0.01 60);
+  border-radius: 8px;
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+.scrollbar-slim::-webkit-scrollbar-thumb:hover {
+  background-color: oklch(0.7 0.02 40);
+}
+.dark .scrollbar-slim::-webkit-scrollbar-thumb {
+  background-color: oklch(0.42 0.01 60);
+}
+.dark .scrollbar-slim::-webkit-scrollbar-thumb:hover {
+  background-color: oklch(0.52 0.02 40);
+}
+
+/* JSON payload viewer */
+.payload-json {
+  font-family: var(--font-geist-mono), ui-monospace, monospace;
+  font-size: 12px;
+  line-height: 1.6;
+}
+/* Payload JSON viewer: the code block always sits on a dark surface
+   (bg-stone-950), so the syntax palette is intentionally theme-constant. */
+.payload-json .key { color: oklch(0.76 0.12 27); }
+.payload-json .str { color: oklch(0.76 0.1 145); }
+.payload-json .num { color: oklch(0.8 0.08 70); }
+.payload-json .bool { color: oklch(0.76 0.09 300); }
+.payload-json .null { color: oklch(0.6 0 0); }
+
+/* Payload diff rows — minus lines red, plus lines green, readable in both editions. */
+.payload-diff-before {
+  color: oklch(0.5 0.16 25);
+  background: oklch(0.97 0.02 25 / 55%);
+  border-radius: 3px;
+  padding-inline: 4px;
+}
+.payload-diff-after {
+  color: oklch(0.5 0.13 150);
+  background: oklch(0.97 0.03 150 / 55%);
+  border-radius: 3px;
+  padding-inline: 4px;
+}
+.dark .payload-diff-before {
+  color: oklch(0.82 0.1 25);
+  background: oklch(0.3 0.06 25 / 40%);
+}
+.dark .payload-diff-after {
+  color: oklch(0.82 0.11 150);
+  background: oklch(0.3 0.05 150 / 40%);
+}
+
+/* Print run strip — editorial double rule under the header row and a themed
+   ring on the position chips so they read on both editions. */
+.print-run > div > div > div:first-child {
+  border-bottom: 3px double var(--border);
+}
+.run-position-chip {
+  box-shadow:
+    0 0 0 1.5px var(--background),
+    0 0 0 3px oklch(from var(--foreground) l c h / 0.14);
+}
+
+/* Handoff receipt — a print-ready artifact. The interactive receipt lives in
+   a Radix dialog; when the user hits Print, the component portals a clean
+   "print twin" (receipt-print-only) directly to <body>, and the rules below
+   hide everything except that branch so the artifact flows onto paper
+   untouched by dialog chrome, transforms or scroll clipping. */
+.receipt-print-only {
+  display: none;
+}
+@media print {
+  @page {
+    margin: 14mm;
+  }
+  /* With the receipt open: keep only the print twin branch in the flow. */
+  body:has(.receipt-print-only) > *:not(.receipt-print-only):not(:has(.receipt-print-only)) {
+    display: none !important;
+  }
+  .receipt-print-only {
+    display: block !important;
+    max-width: 100%;
+  }
+  .receipt-no-print {
+    display: none !important;
+  }
+  .receipt-print-only .receipt-stamp {
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+}
+
+/* Subtle entrance animation for panels */
+@keyframes rise-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.rise-in {
+  animation: rise-in 0.28s ease-out both;
+}
+
+/* Hatch pattern for expired media overlays */
+.expired-hatch {
+  background-image: repeating-linear-gradient(
+    -45deg,
+    oklch(0.98 0.01 27 / 92%),
+    oklch(0.98 0.01 27 / 92%) 8px,
+    oklch(0.94 0.03 27 / 92%) 8px,
+    oklch(0.94 0.03 27 / 92%) 16px
+  );
+}
+.dark .expired-hatch {
+  background-image: repeating-linear-gradient(
+    -45deg,
+    oklch(0.24 0.03 27 / 94%),
+    oklch(0.24 0.03 27 / 94%) 8px,
+    oklch(0.2 0.04 27 / 94%) 8px,
+    oklch(0.2 0.04 27 / 94%) 16px
+  );
+}
+
+/* Reader-preview article typography */
+.article-preview p + p {
+  margin-top: 1.15em;
+}
+.article-preview .first-para::first-letter {
+  font-family: var(--font-serif);
+  float: left;
+  font-size: 3.4em;
+  line-height: 0.82;
+  font-weight: 700;
+  padding-right: 0.08em;
+  padding-top: 0.05em;
+  color: var(--primary);
+}
+
+/* Animated number counters */
+@keyframes stat-pop {
+  0% { transform: scale(1); }
+  40% { transform: scale(1.18); }
+  100% { transform: scale(1); }
+}
+.stat-pop {
+  animation: stat-pop 0.35s ease-out;
+}
+
+/* Board column rhythm for the desk board view */
+.board-column {
+  border-top: 3px double var(--border);
+}
+.board-column-head {
+  border-bottom: 1px solid var(--border);
+}
+
+/* Respect reduced motion preferences */
+@media (prefers-reduced-motion: reduce) {
+  .rise-in,
+  .stat-pop {
+    animation: none;
+  }
+  * {
+    scroll-behavior: auto !important;
+  }
+}

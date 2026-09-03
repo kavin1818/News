@@ -1,0 +1,1226 @@
+     1→"use client";
+     2→
+     3→import { useEffect, useMemo, useState } from "react";
+     4→import Image from "next/image";
+     5→import { useToast } from "@/hooks/use-toast";
+     6→import { useNewsroom } from "@/hooks/use-newsroom";
+     7→import { DESKS, PRIORITIES, type StoryDTO } from "@/lib/newsroom/types";
+     8→import { cn } from "@/lib/utils";
+     9→import { Badge } from "@/components/ui/badge";
+    10→import { Button } from "@/components/ui/button";
+    11→import { Input } from "@/components/ui/input";
+    12→import { Label } from "@/components/ui/label";
+    13→import { Textarea } from "@/components/ui/textarea";
+    14→import { Skeleton } from "@/components/ui/skeleton";
+    15→import {
+    16→  Dialog,
+    17→  DialogContent,
+    18→  DialogDescription,
+    19→  DialogFooter,
+    20→  DialogHeader,
+    21→  DialogTitle,
+    22→} from "@/components/ui/dialog";
+    23→import {
+    24→  Select,
+    25→  SelectContent,
+    26→  SelectItem,
+    27→  SelectTrigger,
+    28→  SelectValue,
+    29→} from "@/components/ui/select";
+    30→import { Separator } from "@/components/ui/separator";
+    31→import {
+    32→  AlertTriangle,
+    33→  CalendarClock,
+    34→  CheckCheck,
+    35→  CopyPlus,
+    36→  Eye,
+    37→  FileText,
+    38→  ImageIcon,
+    39→  Images,
+    40→  PenLine,
+    41→  Plus,
+    42→  Search,
+    43→  Send,
+    44→  Undo2,
+    45→  UserRound,
+    46→  X,
+    47→  ArrowRightLeft,
+    48→  Newspaper,
+    49→} from "lucide-react";
+    50→import {
+    51→  ChannelChips,
+    52→  RightsBadge,
+    53→  StatusBadge,
+    54→  deadlineState,
+    55→  fmtRelative,
+    56→  fmtDateTime,
+    57→  fmtDate,
+    58→} from "./ui-primitives";
+    59→import { StoryTimeline } from "./story-timeline";
+    60→import { ReplaceMediaDialog } from "./replace-media-dialog";
+    61→import { ReaderPreviewDialog } from "./reader-preview";
+    62→
+    63→// ---------------------------------------------------------------------------
+    64→// Story Desk
+    65→// ---------------------------------------------------------------------------
+    66→
+    67→export function StoryDesk({ onSendToHandoff }: { onSendToHandoff: (id: string) => void }) {
+    68→  const stories = useNewsroom((s) => s.stories);
+    69→  const loading = useNewsroom((s) => s.storiesLoading);
+    70→  const [selectedId, setSelectedId] = useState<string | null>(null);
+    71→  const [query, setQuery] = useState("");
+    72→  const [statusFilter, setStatusFilter] = useState("any");
+    73→  const [deskFilter, setDeskFilter] = useState("any");
+    74→  const [newOpen, setNewOpen] = useState(false);
+    75→
+    76→  const filtered = useMemo(() => {
+    77→    const q = query.trim().toLowerCase();
+    78→    return stories.filter((s) => {
+    79→      if (statusFilter !== "any" && s.status !== statusFilter) return false;
+    80→      if (deskFilter !== "any" && s.desk !== deskFilter) return false;
+    81→      if (q) {
+    82→        const hay = `${s.title} ${s.summary} ${s.author} ${s.assignee ?? ""} ${s.slug}`.toLowerCase();
+    83→        if (!hay.includes(q)) return false;
+    84→      }
+    85→      return true;
+    86→    });
+    87→  }, [stories, query, statusFilter, deskFilter]);
+    88→
+    89→  const selected =
+    90→    stories.find((s) => s.id === selectedId) ?? filtered[0] ?? null;
+    91→
+    92→  const statusCounts = useMemo(() => {
+    93→    const counts: Record<string, number> = { any: stories.length };
+    94→    for (const s of stories) counts[s.status] = (counts[s.status] ?? 0) + 1;
+    95→    return counts;
+    96→  }, [stories]);
+    97→
+    98→  return (
+    99→    <div className="rise-in">
+   100→      <div className="mb-5 flex flex-wrap items-end justify-between gap-3">
+   101→        <div>
+   102→          <h2 className="font-headline text-2xl font-bold">Story Desk</h2>
+   103→          <p className="text-sm text-muted-foreground">
+   104→            Write, assign, review and move stories through the editorial workflow.
+   105→          </p>
+   106→        </div>
+   107→        <Button onClick={() => setNewOpen(true)} className="gap-1.5">
+   108→          <Plus className="h-4 w-4" /> New Story
+   109→        </Button>
+   110→      </div>
+   111→
+   112→      <div className="grid gap-6 lg:grid-cols-5">
+   113→        {/* ------------------------------------------------------ list pane */}
+   114→        <section aria-label="Story list" className="lg:col-span-2">
+   115→          <div className="flex gap-2">
+   116→            <div className="relative flex-1">
+   117→              <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+   118→              <Input
+   119→                value={query}
+   120→                onChange={(e) => setQuery(e.target.value)}
+   121→                placeholder="Search stories…"
+   122→                className="pl-8"
+   123→                aria-label="Search stories"
+   124→              />
+   125→            </div>
+   126→            <Select value={deskFilter} onValueChange={setDeskFilter}>
+   127→              <SelectTrigger className="w-[140px]" aria-label="Filter by desk">
+   128→                <SelectValue placeholder="All desks" />
+   129→              </SelectTrigger>
+   130→              <SelectContent>
+   131→                <SelectItem value="any">All desks</SelectItem>
+   132→                {DESKS.map((d) => (
+   133→                  <SelectItem key={d} value={d}>
+   134→                    {d}
+   135→                  </SelectItem>
+   136→                ))}
+   137→              </SelectContent>
+   138→            </Select>
+   139→          </div>
+   140→
+   141→          <div className="scrollbar-slim mt-3 flex flex-wrap gap-1.5 pb-1">
+   142→            {[
+   143→              { id: "any", label: "All" },
+   144→              { id: "DRAFT", label: "Draft" },
+   145→              { id: "IN_REVIEW", label: "In Review" },
+   146→              { id: "REVISION_REQUESTED", label: "Revision" },
+   147→              { id: "APPROVED", label: "Approved" },
+   148→              { id: "PUBLISHED", label: "Published" },
+   149→            ].map((st) => (
+   150→              <button
+   151→                key={st.id}
+   152→                onClick={() => setStatusFilter(st.id)}
+   153→                className={cn(
+   154→                  "whitespace-nowrap rounded-full border px-2.5 py-1 text-xs font-medium transition-all active:scale-95",
+   155→                  statusFilter === st.id
+   156→                    ? "border-primary bg-primary text-primary-foreground shadow-sm"
+   157→                    : "bg-card text-muted-foreground hover:border-foreground/30 hover:text-foreground"
+   158→                )}
+   159→              >
+   160→                {st.label}
+   161→                <span className={cn("ml-1", statusFilter === st.id ? "text-primary-foreground/80" : "text-muted-foreground/70")}>
+   162→                  {statusCounts[st.id] ?? 0}
+   163→                </span>
+   164→              </button>
+   165→            ))}
+   166→          </div>
+   167→
+   168→          <div className="scrollbar-slim mt-3 max-h-[calc(100vh-16rem)] space-y-2 overflow-y-auto pr-1 lg:max-h-[calc(100vh-19rem)]">
+   169→            {loading && stories.length === 0 && (
+   170→              <div className="space-y-2">
+   171→                {[0, 1, 2, 3].map((i) => (
+   172→                  <div key={i} className="flex items-start gap-3 rounded-lg border p-3">
+   173→                    <Skeleton className="h-14 w-20 rounded-md" />
+   174→                    <div className="flex-1 space-y-2">
+   175→                      <Skeleton className="h-3.5 w-4/5" />
+   176→                      <Skeleton className="h-3 w-1/3" />
+   177→                      <Skeleton className="h-2.5 w-1/2" />
+   178→                    </div>
+   179→                  </div>
+   180→                ))}
+   181→              </div>
+   182→            )}
+   183→            {!loading && filtered.length === 0 && (
+   184→              <div className="flex flex-col items-center gap-3 rounded-lg border border-dashed bg-card/50 py-10 text-center">
+   185→                <FileText className="h-7 w-7 text-muted-foreground/40" />
+   186→                <p className="text-sm text-muted-foreground">
+   187→                  No stories match the current search and filters.
+   188→                </p>
+   189→                {(query || statusFilter !== "any" || deskFilter !== "any") && (
+   190→                  <Button
+   191→                    size="sm"
+   192→                    variant="outline"
+   193→                    onClick={() => {
+   194→                      setQuery("");
+   195→                      setStatusFilter("any");
+   196→                      setDeskFilter("any");
+   197→                    }}
+   198→                  >
+   199→                    <X className="mr-1.5 h-3.5 w-3.5" /> Clear filters
+   200→                  </Button>
+   201→                )}
+   202→              </div>
+   203→            )}
+   204→            {filtered.map((story) => (
+   205→              <StoryListItem
+   206→                key={story.id}
+   207→                story={story}
+   208→                active={story.id === selectedId}
+   209→                onSelect={() => setSelectedId(story.id)}
+   210→              />
+   211→            ))}
+   212→          </div>
+   213→        </section>
+   214→
+   215→        {/* ----------------------------------------------------- detail pane */}
+   216→        <section aria-label="Story detail" className="lg:col-span-3">
+   217→          {selected ? (
+   218→            <StoryDetail
+   219→              key={selected.id}
+   220→              story={selected}
+   221→              onSendToHandoff={onSendToHandoff}
+   222→              onDuplicated={setSelectedId}
+   223→            />
+   224→          ) : (
+   225→            <div className="flex h-64 flex-col items-center justify-center gap-2 rounded-lg border border-dashed bg-card/50 text-center">
+   226→              <FileText className="h-8 w-8 text-muted-foreground/50" />
+   227→              <p className="text-sm text-muted-foreground">
+   228→                Select a story from the desk, or create a new one.
+   229→              </p>
+   230→            </div>
+   231→          )}
+   232→        </section>
+   233→      </div>
+   234→
+   235→      <NewStoryDialog open={newOpen} onOpenChange={setNewOpen} onCreated={(id) => setSelectedId(id)} />
+   236→    </div>
+   237→  );
+   238→}
+   239→
+   240→// ---------------------------------------------------------------------------
+   241→// List item
+   242→// ---------------------------------------------------------------------------
+   243→
+   244→function StoryListItem({
+   245→  story,
+   246→  active,
+   247→  onSelect,
+   248→}: {
+   249→  story: StoryDTO;
+   250→  active: boolean;
+   251→  onSelect: () => void;
+   252→}) {
+   253→  const primary = story.media.find((m) => m.isPrimary) ?? story.media[0];
+   254→  const hasExpired = story.media.some((m) => m.media.rights.status === "EXPIRED");
+   255→
+   256→  return (
+   257→    <button
+   258→      onClick={onSelect}
+   259→      aria-current={active ? "true" : undefined}
+   260→      className={cn(
+   261→        "group flex w-full items-start gap-3 rounded-lg border p-3 text-left transition-all active:scale-[0.99]",
+   262→        active
+   263→          ? "border-primary/60 bg-card shadow-[0_1px_0_0_var(--primary)] ring-1 ring-primary/40"
+   264→          : "border-border bg-card hover:border-foreground/25 hover:shadow-sm"
+   265→      )}
+   266→    >
+   267→      <div className="relative h-14 w-20 shrink-0 overflow-hidden rounded-md bg-muted">
+   268→        {primary ? (
+   269→          <Image
+   270→            src={primary.media.url}
+   271→            alt={primary.media.title}
+   272→            fill
+   273→            sizes="80px"
+   274→            className="object-cover"
+   275→          />
+   276→        ) : (
+   277→          <div className="flex h-full w-full items-center justify-center">
+   278→            <ImageIcon className="h-4 w-4 text-muted-foreground/40" />
+   279→          </div>
+   280→        )}
+   281→      </div>
+   282→      <div className="min-w-0 flex-1">
+   283→        <p className="line-clamp-2 font-headline text-[15px] font-semibold leading-snug transition-colors group-hover:text-primary">
+   284→          {story.title}
+   285→        </p>
+   286→        <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+   287→          <StatusBadge status={story.status} />
+   288→          {(story.priority === "HIGH" || story.priority === "URGENT") && (
+   289→            <Badge
+   290→              variant="outline"
+   291→              className={cn(
+   292→                "px-1.5 py-0 text-[10px] font-bold",
+   293→                story.priority === "URGENT"
+   294→                  ? "border-red-300 bg-red-50 text-red-700"
+   295→                  : "border-amber-300 bg-amber-50 text-amber-700"
+   296→              )}
+   297→            >
+   298→              {story.priority}
+   299→            </Badge>
+   300→          )}
+   301→        </div>
+   302→        <p className="mt-1.5 flex flex-wrap items-center gap-x-2 text-xs text-muted-foreground">
+   303→          <span className="font-medium text-foreground/70">{story.desk}</span>
+   304→          <span aria-hidden>·</span>
+   305→          <span>{story.author}</span>
+   306→          <span aria-hidden>·</span>
+   307→          <span>{fmtRelative(story.updatedAt)}</span>
+   308→          {hasExpired && (
+   309→            <span className="inline-flex items-center gap-0.5 font-medium text-red-700">
+   310→              <AlertTriangle className="h-3 w-3" /> expired media
+   311→            </span>
+   312→          )}
+   313→          {story.scheduledFor &&
+   314→            story.status !== "PUBLISHED" &&
+   315→            deadlineState(story.scheduledFor) === "past" && (
+   316→              <span className="inline-flex items-center gap-0.5 font-medium text-red-700">
+   317→                <CalendarClock className="h-3 w-3" /> past due
+   318→              </span>
+   319→            )}
+   320→          {story.scheduledFor &&
+   321→            story.status !== "PUBLISHED" &&
+   322→            deadlineState(story.scheduledFor) === "soon" && (
+   323→              <span className="inline-flex items-center gap-0.5 font-medium text-amber-700">
+   324→                <CalendarClock className="h-3 w-3" /> due soon
+   325→              </span>
+   326→            )}
+   327→        </p>
+   328→      </div>
+   329→    </button>
+   330→  );
+   331→}
+   332→
+   333→// ---------------------------------------------------------------------------
+   334→// Detail
+   335→// ---------------------------------------------------------------------------
+   336→
+   337→function StoryDetail({
+   338→  story,
+   339→  onSendToHandoff,
+   340→  onDuplicated,
+   341→}: {
+   342→  story: StoryDTO;
+   343→  onSendToHandoff: (id: string) => void;
+   344→  onDuplicated: (id: string) => void;
+   345→}) {
+   346→  const { toast } = useToast();
+   347→  const setStoryStatus = useNewsroom((s) => s.setStoryStatus);
+   348→  const approveStory = useNewsroom((s) => s.approveStory);
+   349→  const duplicateStory = useNewsroom((s) => s.duplicateStory);
+   350→  const [busyAction, setBusyAction] = useState<string | null>(null);
+   351→  const [editing, setEditing] = useState(false);
+   352→  const [attachOpen, setAttachOpen] = useState(false);
+   353→  const [previewOpen, setPreviewOpen] = useState(false);
+   354→  const [replaceMediaId, setReplaceMediaId] = useState<string | null>(null);
+   355→
+   356→  const deadline = deadlineState(story.scheduledFor);
+   357→  const deadlineOverdue =
+   358→    deadline === "past" && story.status !== "PUBLISHED";
+   359→
+   360→  const runAction = async (id: string, fn: () => Promise<unknown>, success: string) => {
+   361→    setBusyAction(id);
+   362→    try {
+   363→      await fn();
+   364→      toast({ title: success });
+   365→    } catch (e) {
+   366→      toast({
+   367→        title: "Action failed",
+   368→        description: e instanceof Error ? e.message : "Unknown error",
+   369→        variant: "destructive",
+   370→      });
+   371→    } finally {
+   372→      setBusyAction(null);
+   373→    }
+   374→  };
+   375→
+   376→  return (
+   377→    <article className="rise-in rounded-lg border bg-card">
+   378→      {/* header */}
+   379→      <div className="border-b p-5">
+   380→        <div className="flex flex-wrap items-center gap-2">
+   381→          <StatusBadge status={story.status} />
+   382→          <Badge variant="outline" className="text-xs">
+   383→            {story.desk} desk
+   384→          </Badge>
+   385→          {story.priority !== "NORMAL" && (
+   386→            <Badge variant="outline" className="text-xs">
+   387→              {story.priority}
+   388→            </Badge>
+   389→          )}
+   390→          {story.handoffCount > 0 && (
+   391→            <Badge variant="outline" className="gap-1 border-primary/40 text-[11px] text-primary">
+   392→              <Send className="h-3 w-3" /> {story.handoffCount} handoff(s)
+   393→            </Badge>
+   394→          )}
+   395→          {story.scheduledFor && (
+   396→            <Badge
+   397→              variant="outline"
+   398→              className={cn(
+   399→                "gap-1 text-[11px]",
+   400→                deadlineOverdue
+   401→                  ? "border-red-300 bg-red-50 font-medium text-red-700"
+   402→                  : deadline === "soon" && story.status !== "PUBLISHED"
+   403→                    ? "border-amber-300 bg-amber-50 font-medium text-amber-800"
+   404→                    : "text-muted-foreground"
+   405→              )}
+   406→            >
+   407→              <CalendarClock className="h-3 w-3" />
+   408→              {story.status !== "PUBLISHED" && deadline === "past"
+   409→                ? "past due "
+   410→                : story.status !== "PUBLISHED" && deadline === "soon"
+   411→                  ? "due soon "
+   412→                  : "target "}
+   413→              {fmtDate(story.scheduledFor)}
+   414→            </Badge>
+   415→          )}
+   416→        </div>
+   417→
+   418→        <h3 className="mt-3 font-headline text-2xl font-bold leading-tight">
+   419→          {story.title}
+   420→        </h3>
+   421→        {story.summary && (
+   422→          <p className="mt-2 border-l-2 border-primary/50 pl-3 text-sm italic leading-relaxed text-muted-foreground">
+   423→            {story.summary}
+   424→          </p>
+   425→        )}
+   426→
+   427→        <dl className="mt-4 grid grid-cols-2 gap-x-4 gap-y-1.5 text-xs sm:grid-cols-4">
+   428→          <Meta label="Byline" value={story.author} />
+   429→          <Meta label="Desk editor" value={story.assignee ?? "Unassigned"} warn={!story.assignee} />
+   430→          <Meta label="Slug" value={story.slug} mono />
+   431→          <Meta label="Words" value={String(story.wordCount)} />
+   432→          <Meta label="Created" value={fmtDateTime(story.createdAt)} />
+   433→          <Meta label="Updated" value={fmtRelative(story.updatedAt)} />
+   434→          {story.publishedAt && <Meta label="Published" value={fmtDateTime(story.publishedAt)} />}
+   435→        </dl>
+   436→      </div>
+   437→
+   438→      {/* workflow actions */}
+   439→      <div className="flex flex-wrap items-center gap-2 border-b bg-muted/40 px-5 py-3">
+   440→        {story.status === "DRAFT" && (
+   441→          <Button
+   442→            size="sm"
+   443→            disabled={busyAction !== null}
+   444→            onClick={() =>
+   445→              runAction(
+   446→                "submit",
+   447→                () => setStoryStatus(story.id, "IN_REVIEW"),
+   448→                "Story submitted for review"
+   449→              )
+   450→            }
+   451→          >
+   452→            <Eye className="mr-1.5 h-3.5 w-3.5" /> Submit for Review
+   453→          </Button>
+   454→        )}
+   455→        {story.status === "IN_REVIEW" && (
+   456→          <>
+   457→            <Button
+   458→              size="sm"
+   459→              className="bg-emerald-700 hover:bg-emerald-800"
+   460→              disabled={busyAction !== null}
+   461→              onClick={() => runAction("approve", () => approveStory(story.id), "Story approved")}
+   462→            >
+   463→              <CheckCheck className="mr-1.5 h-3.5 w-3.5" /> Approve
+   464→            </Button>
+   465→            <Button
+   466→              size="sm"
+   467→              variant="outline"
+   468→              disabled={busyAction !== null}
+   469→              onClick={() =>
+   470→                runAction(
+   471→                  "revise",
+   472→                  () => setStoryStatus(story.id, "REVISION_REQUESTED"),
+   473→                  "Revision requested"
+   474→                )
+   475→              }
+   476→            >
+   477→              <Undo2 className="mr-1.5 h-3.5 w-3.5" /> Request Revision
+   478→            </Button>
+   479→            <Button
+   480→              size="sm"
+   481→              variant="ghost"
+   482→              disabled={busyAction !== null}
+   483→              onClick={() => runAction("draft", () => setStoryStatus(story.id, "DRAFT"), "Sent back to Draft")}
+   484→            >
+   485→              <PenLine className="mr-1.5 h-3.5 w-3.5" /> Back to Draft
+   486→            </Button>
+   487→          </>
+   488→        )}
+   489→        {story.status === "REVISION_REQUESTED" && (
+   490→          <>
+   491→            <Button
+   492→              size="sm"
+   493→              disabled={busyAction !== null}
+   494→              onClick={() =>
+   495→                runAction("resubmit", () => setStoryStatus(story.id, "IN_REVIEW"), "Resubmitted for review")
+   496→              }
+   497→            >
+   498→              <Eye className="mr-1.5 h-3.5 w-3.5" /> Resubmit for Review
+   499→            </Button>
+   500→            <Button
+   501→              size="sm"
+   502→              variant="ghost"
+   503→              disabled={busyAction !== null}
+   504→              onClick={() => runAction("draft", () => setStoryStatus(story.id, "DRAFT"), "Sent back to Draft")}
+   505→            >
+   506→              <PenLine className="mr-1.5 h-3.5 w-3.5" /> Back to Draft
+   507→            </Button>
+   508→          </>
+   509→        )}
+   510→        {story.status === "APPROVED" && (
+   511→          <>
+   512→            <Button size="sm" className="gap-1.5" disabled={busyAction !== null} onClick={() => onSendToHandoff(story.id)}>
+   513→              <Send className="h-3.5 w-3.5" /> Take to Handoff
+   514→            </Button>
+   515→            <Button
+   516→              size="sm"
+   517→              variant="outline"
+   518→              disabled={busyAction !== null}
+   519→              onClick={() => runAction("reopen", () => setStoryStatus(story.id, "IN_REVIEW"), "Review reopened")}
+   520→            >
+   521→              <Undo2 className="mr-1.5 h-3.5 w-3.5" /> Reopen Review
+   522→            </Button>
+   523→          </>
+   524→        )}
+   525→        {story.status === "PUBLISHED" && (
+   526→          <p className="flex items-center gap-2 text-sm text-muted-foreground">
+   527→            <CalendarClock className="h-4 w-4 text-primary" />
+   528→            Published to the web — handed off {fmtRelative(story.publishedAt ?? story.updatedAt)}.
+   529→          </p>
+   530→        )}
+   531→
+   532→        <div className="ml-auto flex items-center gap-1">
+   533→          <Button
+   534→            size="sm"
+   535→            variant="ghost"
+   536→            className="gap-1.5"
+   537→            disabled={busyAction !== null}
+   538→            title="Pitch a follow-up story from this one"
+   539→            onClick={async () => {
+   540→              setBusyAction("duplicate");
+   541→              try {
+   542→                const created = await duplicateStory(story.id);
+   543→                toast({
+   544→                  title: "Follow-up pitched",
+   545→                  description: `“${created.title}” created as a Draft on the ${created.desk} desk.`,
+   546→                });
+   547→                onDuplicated(created.id);
+   548→              } catch (e) {
+   549→                toast({
+   550→                  title: "Duplicate failed",
+   551→                  description: e instanceof Error ? e.message : "Unknown error",
+   552→                  variant: "destructive",
+   553→                });
+   554→              } finally {
+   555→                setBusyAction(null);
+   556→              }
+   557→            }}
+   558→          >
+   559→            <CopyPlus className="h-3.5 w-3.5" /> Follow-up
+   560→          </Button>
+   561→          <Button
+   562→            size="sm"
+   563→            variant="ghost"
+   564→            className="gap-1.5"
+   565→            onClick={() => setPreviewOpen(true)}
+   566→          >
+   567→            <Newspaper className="h-3.5 w-3.5" /> Reader Preview
+   568→          </Button>
+   569→          {story.status !== "PUBLISHED" && (
+   570→            <Button size="sm" variant="ghost" onClick={() => setEditing((v) => !v)}>
+   571→              <PenLine className="mr-1.5 h-3.5 w-3.5" />
+   572→              {editing ? "Close Editor" : "Edit Story"}
+   573→            </Button>
+   574→          )}
+   575→        </div>
+   576→      </div>
+   577→
+   578→      {/* body */}
+   579→      <div className="p-5">
+   580→        {editing ? (
+   581→          <EditStoryForm
+   582→            story={story}
+   583→            onDone={() => setEditing(false)}
+   584→          />
+   585→        ) : (
+   586→          <div className="space-y-4">
+   587→            <h4 className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+   588→              Body copy
+   589→            </h4>
+   590→            <div className="max-h-72 space-y-3 overflow-y-auto scrollbar-slim pr-1 text-[15px] leading-relaxed">
+   591→              {story.body.split("\n\n").map((para, i) => (
+   592→                <p key={i}>{para}</p>
+   593→              ))}
+   594→              {!story.body && (
+   595→                <p className="text-sm italic text-muted-foreground">
+   596→                  No body copy yet — open the editor to start writing.
+   597→                </p>
+   598→              )}
+   599→            </div>
+   600→          </div>
+   601→        )}
+   602→
+   603→        <Separator className="my-5" />
+   604→
+   605→        {/* media */}
+   606→        <StoryMediaSection
+   607→          story={story}
+   608→          attachOpen={attachOpen}
+   609→          setAttachOpen={setAttachOpen}
+   610→          onReplace={(mediaId) => setReplaceMediaId(mediaId)}
+   611→        />
+   612→
+   613→        <Separator className="my-5" />
+   614→
+   615→        <StoryTimeline storyId={story.id} />
+   616→      </div>
+   617→
+   618→      <ReaderPreviewDialog story={story} open={previewOpen} onOpenChange={setPreviewOpen} />
+   619→      {replaceMediaId && (
+   620→        <ReplaceMediaDialog
+   621→          story={story}
+   622→          mediaId={replaceMediaId}
+   623→          open={replaceMediaId !== null}
+   624→          onOpenChange={(v) => {
+   625→            if (!v) setReplaceMediaId(null);
+   626→          }}
+   627→        />
+   628→      )}
+   629→    </article>
+   630→  );
+   631→}
+   632→
+   633→function Meta({
+   634→  label,
+   635→  value,
+   636→  mono,
+   637→  warn,
+   638→}: {
+   639→  label: string;
+   640→  value: string;
+   641→  mono?: boolean;
+   642→  warn?: boolean;
+   643→}) {
+   644→  return (
+   645→    <div>
+   646→      <dt className="text-[10px] uppercase tracking-[0.12em] text-muted-foreground">{label}</dt>
+   647→      <dd className={cn("truncate font-medium", mono && "font-mono text-[11px]", warn && "text-amber-700")}>
+   648→        {value}
+   649→      </dd>
+   650→    </div>
+   651→  );
+   652→}
+   653→
+   654→// ---------------------------------------------------------------------------
+   655→// Media section of the story detail
+   656→// ---------------------------------------------------------------------------
+   657→
+   658→function StoryMediaSection({
+   659→  story,
+   660→  attachOpen,
+   661→  setAttachOpen,
+   662→  onReplace,
+   663→}: {
+   664→  story: StoryDTO;
+   665→  attachOpen: boolean;
+   666→  setAttachOpen: (v: boolean) => void;
+   667→  onReplace: (mediaId: string) => void;
+   668→}) {
+   669→  const { toast } = useToast();
+   670→  const detachMedia = useNewsroom((s) => s.detachMedia);
+   671→  const updateAttachment = useNewsroom((s) => s.updateAttachment);
+   672→  const [busy, setBusy] = useState<string | null>(null);
+   673→
+   674→  const doDetach = async (mediaId: string, title: string) => {
+   675→    setBusy(mediaId);
+   676→    try {
+   677→      await detachMedia(story.id, mediaId);
+   678→      toast({ title: `Removed "${title}" from the story` });
+   679→    } catch (e) {
+   680→      toast({
+   681→        title: "Could not remove media",
+   682→        description: e instanceof Error ? e.message : "Unknown error",
+   683→        variant: "destructive",
+   684→      });
+   685→    } finally {
+   686→      setBusy(null);
+   687→    }
+   688→  };
+   689→
+   690→  const makePrimary = async (mediaId: string) => {
+   691→    setBusy(mediaId);
+   692→    try {
+   693→      await updateAttachment(story.id, mediaId, { isPrimary: true });
+   694→      toast({ title: "Lead image updated" });
+   695→    } catch (e) {
+   696→      toast({
+   697→        title: "Could not set lead image",
+   698→        description: e instanceof Error ? e.message : "Unknown error",
+   699→        variant: "destructive",
+   700→      });
+   701→    } finally {
+   702→      setBusy(null);
+   703→    }
+   704→  };
+   705→
+   706→  return (
+   707→    <section aria-label="Attached media">
+   708→      <div className="mb-3 flex items-center justify-between">
+   709→        <h4 className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+   710→          Attached media ({story.media.length})
+   711→        </h4>
+   712→        {story.status !== "PUBLISHED" && (
+   713→          <Button size="sm" variant="outline" className="gap-1.5" onClick={() => setAttachOpen(true)}>
+   714→            <Images className="h-3.5 w-3.5" /> Attach from Vault
+   715→          </Button>
+   716→        )}
+   717→      </div>
+   718→
+   719→      {story.media.length === 0 ? (
+   720→        <div className="flex flex-col items-center gap-2 rounded-lg border border-dashed py-8 text-center">
+   721→          <Images className="h-6 w-6 text-muted-foreground/50" />
+   722→          <p className="text-sm text-muted-foreground">
+   723→            No media attached. Publication requires at least one cleared asset.
+   724→          </p>
+   725→          {story.status !== "PUBLISHED" && (
+   726→            <Button size="sm" variant="outline" className="gap-1.5" onClick={() => setAttachOpen(true)}>
+   727→              <Images className="h-3.5 w-3.5" /> Browse the Vault
+   728→            </Button>
+   729→          )}
+   730→        </div>
+   731→      ) : (
+   732→        <div className="grid gap-3 sm:grid-cols-2">
+   733→          {story.media.map((att) => {
+   734→            const expired = att.media.rights.status === "EXPIRED";
+   735→            return (
+   736→              <div
+   737→                key={att.mediaId}
+   738→                className={cn(
+   739→                  "group flex gap-3 rounded-lg border p-2.5 transition-colors",
+   740→                  expired
+   741→                    ? "border-red-300 bg-red-50/50"
+   742→                    : "bg-card hover:border-foreground/25"
+   743→                )}
+   744→              >
+   745→                <div className="relative h-20 w-28 shrink-0 overflow-hidden rounded-md bg-muted">
+   746→                  <Image
+   747→                    src={att.media.url}
+   748→                    alt={att.media.title}
+   749→                    fill
+   750→                    sizes="112px"
+   751→                    className={cn("object-cover", expired && "grayscale")}
+   752→                  />
+   753→                  {expired && (
+   754→                    <div className="absolute inset-0 expired-hatch" />
+   755→                  )}
+   756→                </div>
+   757→                <div className="min-w-0 flex-1">
+   758→                  <div className="flex items-center gap-1.5">
+   759→                    {att.isPrimary && (
+   760→                      <Badge className="bg-primary px-1.5 py-0 text-[10px] text-primary-foreground">
+   761→                        Lead
+   762→                      </Badge>
+   763→                    )}
+   764→                    <RightsBadge status={att.media.rights.status} />
+   765→                  </div>
+   766→                  <p className="mt-1 line-clamp-1 text-sm font-medium">{att.media.title}</p>
+   767→                  <p className="line-clamp-1 text-xs text-muted-foreground">
+   768→                    {att.caption || att.media.description}
+   769→                  </p>
+   770→                  <p className="mt-1 text-[11px] text-muted-foreground">
+   771→                    {att.media.photographer} · {att.media.licenseType}
+   772→                  </p>
+   773→                  {story.status !== "PUBLISHED" && (
+   774→                    <div className="mt-1.5 flex flex-wrap gap-1.5">
+   775→                      {!att.isPrimary && (
+   776→                        <Button
+   777→                          size="sm"
+   778→                          variant="ghost"
+   779→                          className="h-6 px-2 text-[11px]"
+   780→                          disabled={busy === att.mediaId}
+   781→                          onClick={() => makePrimary(att.mediaId)}
+   782→                        >
+   783→                          Make lead
+   784→                        </Button>
+   785→                      )}
+   786→                      <Button
+   787→                        size="sm"
+   788→                        variant="ghost"
+   789→                        className={cn(
+   790→                          "h-6 gap-1 px-2 text-[11px]",
+   791→                          expired ? "font-medium text-red-700 hover:text-red-800" : ""
+   792→                        )}
+   793→                        onClick={() => onReplace(att.mediaId)}
+   794→                        title="Swap this asset for a web-cleared replacement"
+   795→                      >
+   796→                        <ArrowRightLeft className="h-3 w-3" /> Replace
+   797→                      </Button>
+   798→                      <Button
+   799→                        size="sm"
+   800→                        variant="ghost"
+   801→                        className="h-6 px-2 text-[11px] text-red-700 hover:text-red-800"
+   802→                        disabled={busy === att.mediaId}
+   803→                        onClick={() => doDetach(att.mediaId, att.media.title)}
+   804→                      >
+   805→                        <X className="mr-0.5 h-3 w-3" /> Remove
+   806→                      </Button>
+   807→                    </div>
+   808→                  )}
+   809→                </div>
+   810→              </div>
+   811→            );
+   812→          })}
+   813→        </div>
+   814→      )}
+   815→
+   816→      <AttachMediaDialog
+   817→        story={story}
+   818→        open={attachOpen}
+   819→        onOpenChange={setAttachOpen}
+   820→      />
+   821→    </section>
+   822→  );
+   823→}
+   824→
+   825→// ---------------------------------------------------------------------------
+   826→// Attach media dialog
+   827→// ---------------------------------------------------------------------------
+   828→
+   829→function AttachMediaDialog({
+   830→  story,
+   831→  open,
+   832→  onOpenChange,
+   833→}: {
+   834→  story: StoryDTO;
+   835→  open: boolean;
+   836→  onOpenChange: (v: boolean) => void;
+   837→}) {
+   838→  const media = useNewsroom((s) => s.media);
+   839→  const attachMedia = useNewsroom((s) => s.attachMedia);
+   840→  const { toast } = useToast();
+   841→  const [query, setQuery] = useState("");
+   842→  const [caption, setCaption] = useState("");
+   843→  const [selectedId, setSelectedId] = useState<string | null>(null);
+   844→  const [busy, setBusy] = useState(false);
+   845→
+   846→  const attachedIds = useMemo(
+   847→    () => new Set(story.media.map((m) => m.mediaId)),
+   848→    [story.media]
+   849→  );
+   850→
+   851→  const candidates = useMemo(() => {
+   852→    const q = query.trim().toLowerCase();
+   853→    return media
+   854→      .filter((m) => !attachedIds.has(m.id))
+   855→      .filter((m) => {
+   856→        if (!q) return true;
+   857→        return `${m.title} ${m.description} ${m.photographer} ${m.source}`.toLowerCase().includes(q);
+   858→      });
+   859→  }, [media, query, attachedIds]);
+   860→
+   861→  const doAttach = async () => {
+   862→    if (!selectedId) return;
+   863→    setBusy(true);
+   864→    try {
+   865→      await attachMedia(story.id, selectedId, {
+   866→        caption: caption.trim() || null,
+   867→        isPrimary: story.media.length === 0,
+   868→      });
+   869→      toast({ title: "Media attached to story" });
+   870→      onOpenChange(false);
+   871→      setCaption("");
+   872→      setSelectedId(null);
+   873→      setQuery("");
+   874→    } catch (e) {
+   875→      toast({
+   876→        title: "Could not attach media",
+   877→        description: e instanceof Error ? e.message : "Unknown error",
+   878→        variant: "destructive",
+   879→      });
+   880→    } finally {
+   881→      setBusy(false);
+   882→    }
+   883→  };
+   884→
+   885→  return (
+   886→    <Dialog open={open} onOpenChange={onOpenChange}>
+   887→      <DialogContent className="max-w-2xl">
+   888→        <DialogHeader>
+   889→          <DialogTitle className="font-headline">Attach media to story</DialogTitle>
+   890→          <DialogDescription>
+   891→            Pick an asset from the vault. Rights are re-checked automatically before publication.
+   892→          </DialogDescription>
+   893→        </DialogHeader>
+   894→
+   895→        <div className="relative">
+   896→          <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+   897→          <Input
+   898→            value={query}
+   899→            onChange={(e) => setQuery(e.target.value)}
+   900→            placeholder="Search the vault…"
+   901→            className="pl-8"
+   902→          />
+   903→        </div>
+   904→
+   905→        <div className="scrollbar-slim grid max-h-72 grid-cols-2 gap-2 overflow-y-auto sm:grid-cols-3">
+   906→          {candidates.map((m) => (
+   907→            <button
+   908→              key={m.id}
+   909→              onClick={() => setSelectedId(m.id)}
+   910→              className={cn(
+   911→                "rounded-lg border p-1.5 text-left transition-all",
+   912→                selectedId === m.id
+   913→                  ? "border-primary ring-1 ring-primary/50"
+   914→                  : "hover:border-foreground/30"
+   915→              )}
+   916→            >
+   917→              <div className="relative aspect-[3/2] overflow-hidden rounded bg-muted">
+   918→                <Image src={m.url} alt={m.title} fill sizes="200px" className="object-cover" />
+   919→              </div>
+   920→              <p className="mt-1 line-clamp-1 text-xs font-medium">{m.title}</p>
+   921→              <div className="mt-1 flex items-center justify-between gap-1">
+   922→                <RightsBadge status={m.rights.status} label={m.rights.status === "PERPETUAL" ? "Perpetual" : undefined} />
+   923→              </div>
+   924→            </button>
+   925→          ))}
+   926→          {candidates.length === 0 && (
+   927→            <p className="col-span-full py-8 text-center text-sm text-muted-foreground">
+   928→              Every vault asset is already attached, or nothing matches.
+   929→            </p>
+   930→          )}
+   931→        </div>
+   932→
+   933→        <div className="space-y-1.5">
+   934→          <Label htmlFor="caption">Caption</Label>
+   935→          <Input
+   936→            id="caption"
+   937→            value={caption}
+   938→            onChange={(e) => setCaption(e.target.value)}
+   939→            placeholder="Editorial caption shown with the image…"
+   940→          />
+   941→        </div>
+   942→
+   943→        <DialogFooter>
+   944→          <Button variant="outline" onClick={() => onOpenChange(false)}>
+   945→            Cancel
+   946→          </Button>
+   947→          <Button onClick={doAttach} disabled={!selectedId || busy}>
+   948→            {busy ? "Attaching…" : "Attach to Story"}
+   949→          </Button>
+   950→        </DialogFooter>
+   951→      </DialogContent>
+   952→    </Dialog>
+   953→  );
+   954→}
+   955→
+   956→// ---------------------------------------------------------------------------
+   957→// Edit form
+   958→// ---------------------------------------------------------------------------
+   959→
+   960→function EditStoryForm({ story, onDone }: { story: StoryDTO; onDone: () => void }) {
+   961→  const updateStoryFields = useNewsroom((s) => s.updateStoryFields);
+   962→  const { toast } = useToast();
+   963→  const [title, setTitle] = useState(story.title);
+   964→  const [summary, setSummary] = useState(story.summary);
+   965→  const [body, setBody] = useState(story.body);
+   966→  const [desk, setDesk] = useState(story.desk);
+   967→  const [assignee, setAssignee] = useState(story.assignee ?? "");
+   968→  const [priority, setPriority] = useState(story.priority);
+   969→  const [deadline, setDeadline] = useState(
+   970→    story.scheduledFor ? story.scheduledFor.slice(0, 10) : ""
+   971→  );
+   972→  const [busy, setBusy] = useState(false);
+   973→
+   974→  const save = async () => {
+   975→    setBusy(true);
+   976→    try {
+   977→      const updated = await updateStoryFields(story.id, {
+   978→        title,
+   979→        summary,
+   980→        body,
+   981→        desk,
+   982→        assignee,
+   983→        priority,
+   984→        scheduledFor: deadline ? new Date(`${deadline}T12:00:00`).toISOString() : null,
+   985→      });
+   986→      if (story.status === "APPROVED" && updated.status === "DRAFT") {
+   987→        toast({
+   988→          title: "Story saved — reverted to Draft",
+   989→          description:
+   990→            "Approval applies to the version that was reviewed. Approved copy changed, so the story must be re-approved before handoff.",
+   991→        });
+   992→      } else {
+   993→        toast({ title: "Story saved" });
+   994→      }
+   995→      onDone();
+   996→    } catch (e) {
+   997→      toast({
+   998→        title: "Save failed",
+   999→        description: e instanceof Error ? e.message : "Unknown error",
+  1000→        variant: "destructive",
+  1001→      });
+  1002→    } finally {
+  1003→      setBusy(false);
+  1004→    }
+  1005→  };
+  1006→
+  1007→  return (
+  1008→    <div className="space-y-4">
+  1009→      <div className="space-y-1.5">
+  1010→        <Label htmlFor="edit-title">Headline</Label>
+  1011→        <Input id="edit-title" value={title} onChange={(e) => setTitle(e.target.value)} />
+  1012→      </div>
+  1013→      <div className="space-y-1.5">
+  1014→        <Label htmlFor="edit-summary">Standfirst / summary</Label>
+  1015→        <Textarea id="edit-summary" rows={2} value={summary} onChange={(e) => setSummary(e.target.value)} />
+  1016→      </div>
+  1017→      <div className="space-y-1.5">
+  1018→        <Label htmlFor="edit-body">Body</Label>
+  1019→        <Textarea
+  1020→          id="edit-body"
+  1021→          rows={10}
+  1022→          value={body}
+  1023→          onChange={(e) => setBody(e.target.value)}
+  1024→          className="font-serif text-[15px] leading-relaxed"
+  1025→        />
+  1026→      </div>
+  1027→      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+  1028→        <div className="space-y-1.5">
+  1029→          <Label>Desk</Label>
+  1030→          <Select value={desk} onValueChange={setDesk}>
+  1031→            <SelectTrigger>
+  1032→              <SelectValue />
+  1033→            </SelectTrigger>
+  1034→            <SelectContent>
+  1035→              {DESKS.map((d) => (
+  1036→                <SelectItem key={d} value={d}>
+  1037→                  {d}
+  1038→                </SelectItem>
+  1039→              ))}
+  1040→            </SelectContent>
+  1041→          </Select>
+  1042→        </div>
+  1043→        <div className="space-y-1.5">
+  1044→          <Label htmlFor="edit-assignee">Desk editor</Label>
+  1045→          <div className="relative">
+  1046→            <UserRound className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+  1047→            <Input
+  1048→              id="edit-assignee"
+  1049→              value={assignee}
+  1050→              onChange={(e) => setAssignee(e.target.value)}
+  1051→              placeholder="Unassigned"
+  1052→              className="pl-8"
+  1053→            />
+  1054→          </div>
+  1055→        </div>
+  1056→        <div className="space-y-1.5">
+  1057→          <Label>Priority</Label>
+  1058→          <Select value={priority} onValueChange={setPriority}>
+  1059→            <SelectTrigger>
+  1060→              <SelectValue />
+  1061→            </SelectTrigger>
+  1062→            <SelectContent>
+  1063→              {PRIORITIES.map((p) => (
+  1064→                <SelectItem key={p} value={p}>
+  1065→                  {p}
+  1066→                </SelectItem>
+  1067→              ))}
+  1068→            </SelectContent>
+  1069→          </Select>
+  1070→        </div>
+  1071→        <div className="space-y-1.5">
+  1072→          <Label htmlFor="edit-deadline">Publish deadline</Label>
+  1073→          <Input
+  1074→            id="edit-deadline"
+  1075→            type="date"
+  1076→            value={deadline}
+  1077→            onChange={(e) => setDeadline(e.target.value)}
+  1078→          />
+  1079→        </div>
+  1080→      </div>
+  1081→      <div className="flex justify-end gap-2">
+  1082→        <Button variant="outline" onClick={onDone} disabled={busy}>
+  1083→          Cancel
+  1084→        </Button>
+  1085→        <Button onClick={save} disabled={busy}>
+  1086→          {busy ? "Saving…" : "Save Changes"}
+  1087→        </Button>
+  1088→      </div>
+  1089→    </div>
+  1090→  );
+  1091→}
+  1092→
+  1093→// ---------------------------------------------------------------------------
+  1094→// New story dialog
+  1095→// ---------------------------------------------------------------------------
+  1096→
+  1097→function NewStoryDialog({
+  1098→  open,
+  1099→  onOpenChange,
+  1100→  onCreated,
+  1101→}: {
+  1102→  open: boolean;
+  1103→  onOpenChange: (v: boolean) => void;
+  1104→  onCreated: (id: string) => void;
+  1105→}) {
+  1106→  const createStory = useNewsroom((s) => s.createStory);
+  1107→  const { toast } = useToast();
+  1108→  const [title, setTitle] = useState("");
+  1109→  const [desk, setDesk] = useState<string>("City Hall");
+  1110→  const [author, setAuthor] = useState("");
+  1111→  const [priority, setPriority] = useState("NORMAL");
+  1112→  const [deadline, setDeadline] = useState("");
+  1113→  const [busy, setBusy] = useState(false);
+  1114→
+  1115→  const create = async () => {
+  1116→    setBusy(true);
+  1117→    try {
+  1118→      const story = await createStory({
+  1119→        title,
+  1120→        desk,
+  1121→        author: author || undefined,
+  1122→        priority,
+  1123→        scheduledFor: deadline ? new Date(`${deadline}T12:00:00`).toISOString() : null,
+  1124→      });
+  1125→      toast({ title: "Story created in Draft" });
+  1126→      onCreated(story.id);
+  1127→      onOpenChange(false);
+  1128→      setTitle("");
+  1129→      setAuthor("");
+  1130→      setPriority("NORMAL");
+  1131→      setDeadline("");
+  1132→      setDesk("City Hall");
+  1133→    } catch (e) {
+  1134→      toast({
+  1135→        title: "Could not create story",
+  1136→        description: e instanceof Error ? e.message : "Unknown error",
+  1137→        variant: "destructive",
+  1138→      });
+  1139→    } finally {
+  1140→      setBusy(false);
+  1141→    }
+  1142→  };
+  1143→
+  1144→  return (
+  1145→    <Dialog open={open} onOpenChange={onOpenChange}>
+  1146→      <DialogContent className="max-w-lg">
+  1147→        <DialogHeader>
+  1148→          <DialogTitle className="font-headline">New story</DialogTitle>
+  1149→          <DialogDescription>
+  1150→            Starts as a Draft on the selected desk. Add body copy in the editor.
+  1151→          </DialogDescription>
+  1152→        </DialogHeader>
+  1153→        <div className="space-y-4">
+  1154→          <div className="space-y-1.5">
+  1155→            <Label htmlFor="new-title">Headline *</Label>
+  1156→            <Input
+  1157→              id="new-title"
+  1158→              value={title}
+  1159→              onChange={(e) => setTitle(e.target.value)}
+  1160→              placeholder="e.g. Council Committee Advances Stadium Financing Plan"
+  1161→            />
+  1162→          </div>
+  1163→          <div className="grid gap-4 sm:grid-cols-2">
+  1164→            <div className="space-y-1.5">
+  1165→              <Label>Desk</Label>
+  1166→              <Select value={desk} onValueChange={setDesk}>
+  1167→                <SelectTrigger>
+  1168→                  <SelectValue />
+  1169→                </SelectTrigger>
+  1170→                <SelectContent>
+  1171→                  {DESKS.map((d) => (
+  1172→                    <SelectItem key={d} value={d}>
+  1173→                      {d}
+  1174→                    </SelectItem>
+  1175→                  ))}
+  1176→                </SelectContent>
+  1177→              </Select>
+  1178→            </div>
+  1179→            <div className="space-y-1.5">
+  1180→              <Label>Priority</Label>
+  1181→              <Select value={priority} onValueChange={setPriority}>
+  1182→                <SelectTrigger>
+  1183→                  <SelectValue />
+  1184→                </SelectTrigger>
+  1185→                <SelectContent>
+  1186→                  {PRIORITIES.map((p) => (
+  1187→                    <SelectItem key={p} value={p}>
+  1188→                      {p}
+  1189→                    </SelectItem>
+  1190→                  ))}
+  1191→                </SelectContent>
+  1192→              </Select>
+  1193→            </div>
+  1194→          </div>
+  1195→          <div className="space-y-1.5">
+  1196→            <Label htmlFor="new-author">Author / byline</Label>
+  1197→            <Input
+  1198→              id="new-author"
+  1199→              value={author}
+  1200→              onChange={(e) => setAuthor(e.target.value)}
+  1201→              placeholder="Newsroom Staff"
+  1202→            />
+  1203→          </div>
+  1204→          <div className="space-y-1.5">
+  1205→            <Label htmlFor="new-deadline">Publish deadline (optional)</Label>
+  1206→            <Input
+  1207→              id="new-deadline"
+  1208→              type="date"
+  1209→              value={deadline}
+  1210→              onChange={(e) => setDeadline(e.target.value)}
+  1211→            />
+  1212→          </div>
+  1213→        </div>
+  1214→        <DialogFooter>
+  1215→          <Button variant="outline" onClick={() => onOpenChange(false)}>
+  1216→            Cancel
+  1217→          </Button>
+  1218→          <Button onClick={create} disabled={title.trim().length < 4 || busy}>
+  1219→            {busy ? "Creating…" : "Create Draft"}
+  1220→          </Button>
+  1221→        </DialogFooter>
+  1222→      </DialogContent>
+  1223→    </Dialog>
+  1224→  );
+  1225→}
+  1226→

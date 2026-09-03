@@ -1,0 +1,734 @@
+     1→"use client";
+     2→
+     3→import { useEffect, useMemo, useState } from "react";
+     4→import { useToast } from "@/hooks/use-toast";
+     5→import { useNewsroom } from "@/hooks/use-newsroom";
+     6→import type {
+     7→  HandoffDTO,
+     8→  HandoffResult,
+     9→  ValidationResult,
+    10→  WebHandoffPayload,
+    11→} from "@/lib/newsroom/types";
+    12→import { cn } from "@/lib/utils";
+    13→import { Badge } from "@/components/ui/badge";
+    14→import { Button } from "@/components/ui/button";
+    15→import {
+    16→  AlertDialog,
+    17→  AlertDialogAction,
+    18→  AlertDialogCancel,
+    19→  AlertDialogContent,
+    20→  AlertDialogDescription,
+    21→  AlertDialogFooter,
+    22→  AlertDialogHeader,
+    23→  AlertDialogTitle,
+    24→} from "@/components/ui/alert-dialog";
+    25→import {
+    26→  AlertTriangle,
+    27→  ArrowRightLeft,
+    28→  Check,
+    29→  CheckCircle2,
+    30→  ChevronRight,
+    31→  ClipboardCopy,
+    32→  Download,
+    33→  FileJson,
+    34→  Images,
+    35→  Loader2,
+    36→  Rocket,
+    37→  Send,
+    38→  ShieldCheck,
+    39→  XCircle,
+    40→} from "lucide-react";
+    41→import { StatusBadge, fmtDateTime, fmtRelative } from "./ui-primitives";
+    42→import { ReplaceMediaDialog } from "./replace-media-dialog";
+    43→
+    44→// ---------------------------------------------------------------------------
+    45→// Handoff Engine
+    46→// ---------------------------------------------------------------------------
+    47→
+    48→export function HandoffEngine({
+    49→  preselectedStoryId,
+    50→  onConsumePreselection,
+    51→  onOpenVault,
+    52→}: {
+    53→  preselectedStoryId: string | null;
+    54→  onConsumePreselection: () => void;
+    55→  onOpenVault: () => void;
+    56→}) {
+    57→  const stories = useNewsroom((s) => s.stories);
+    58→  const handoffs = useNewsroom((s) => s.handoffs);
+    59→  const validatePublication = useNewsroom((s) => s.validatePublication);
+    60→  const prepareHandoff = useNewsroom((s) => s.prepareHandoff);
+    61→  const executeHandoff = useNewsroom((s) => s.executeHandoff);
+    62→  const { toast } = useToast();
+    63→
+    64→  const [selectedId, setSelectedId] = useState<string | null>(preselectedStoryId);
+    65→  const [validation, setValidation] = useState<ValidationResult | null>(null);
+    66→  const [validating, setValidating] = useState(false);
+    67→  const [payload, setPayload] = useState<WebHandoffPayload | null>(null);
+    68→  const [preparing, setPreparing] = useState(false);
+    69→  const [result, setResult] = useState<HandoffResult | null>(null);
+    70→  const [executing, setExecuting] = useState(false);
+    71→  const [confirmOpen, setConfirmOpen] = useState(false);
+    72→  const [replaceMediaId, setReplaceMediaId] = useState<string | null>(null);
+    73→
+    74→  // Accept preselection coming from the Story Desk
+    75→  useEffect(() => {
+    76→    if (preselectedStoryId) {
+    77→      setSelectedId(preselectedStoryId);
+    78→      onConsumePreselection();
+    79→    }
+    80→  }, [preselectedStoryId, onConsumePreselection]);
+    81→
+    82→  const story = stories.find((s) => s.id === selectedId) ?? null;
+    83→
+    84→  const expiredMediaId =
+    85→    story?.media.find((m) => m.media.rights.status === "EXPIRED")?.mediaId ?? null;
+    86→
+    87→  const approved = useMemo(
+    88→    () => stories.filter((s) => s.status === "APPROVED"),
+    89→    [stories]
+    90→  );
+    91→  const others = useMemo(
+    92→    () => stories.filter((s) => s.status !== "APPROVED" && s.status !== "PUBLISHED"),
+    93→    [stories]
+    94→  );
+    95→  const publishedList = useMemo(
+    96→    () => stories.filter((s) => s.status === "PUBLISHED"),
+    97→    [stories]
+    98→  );
+    99→
+   100→  const runValidation = async (storyId: string) => {
+   101→    setValidating(true);
+   102→    setPayload(null);
+   103→    setResult(null);
+   104→    try {
+   105→      const v = await validatePublication(storyId);
+   106→      setValidation(v);
+   107→    } catch (e) {
+   108→      toast({
+   109→        title: "Validation failed",
+   110→        description: e instanceof Error ? e.message : "Unknown error",
+   111→        variant: "destructive",
+   112→      });
+   113→      setValidation(null);
+   114→    } finally {
+   115→      setValidating(false);
+   116→    }
+   117→  };
+   118→
+   119→  // Auto-validate whenever the selected story changes
+   120→  useEffect(() => {
+   121→    setValidation(null);
+   122→    setPayload(null);
+   123→    setResult(null);
+   124→    if (selectedId) void runValidation(selectedId);
+   125→  }, [selectedId]);
+   126→
+   127→  const doPrepare = async () => {
+   128→    if (!story) return;
+   129→    setPreparing(true);
+   130→    try {
+   131→      const p = await prepareHandoff(story.id);
+   132→      setPayload(p);
+   133→      toast({ title: "Publishing payload generated" });
+   134→    } catch (e) {
+   135→      toast({
+   136→        title: "Cannot generate payload",
+   137→        description: e instanceof Error ? e.message : "Unknown error",
+   138→        variant: "destructive",
+   139→      });
+   140→    } finally {
+   141→      setPreparing(false);
+   142→    }
+   143→  };
+   144→
+   145→  const doExecute = async () => {
+   146→    if (!story) return;
+   147→    setConfirmOpen(false);
+   148→    setExecuting(true);
+   149→    try {
+   150→      const r = await executeHandoff(story.id);
+   151→      setResult(r);
+   152→      if (r.ok) {
+   153→        toast({ title: `Handoff ${r.handoffRef} delivered to the web CMS` });
+   154→      } else {
+   155→        toast({ title: "Handoff blocked", description: r.message, variant: "destructive" });
+   156→      }
+   157→    } catch (e) {
+   158→      toast({
+   159→        title: "Handoff failed",
+   160→        description: e instanceof Error ? e.message : "Unknown error",
+   161→        variant: "destructive",
+   162→      });
+   163→    } finally {
+   164→      setExecuting(false);
+   165→    }
+   166→  };
+   167→
+   168→  return (
+   169→    <div className="rise-in">
+   170→      <div className="mb-5">
+   171→        <h2 className="font-headline text-2xl font-bold">Handoff Engine</h2>
+   172→        <p className="text-sm text-muted-foreground">
+   173→          Validate an approved story, review the web payload, and hand off to the CMS.
+   174→        </p>
+   175→      </div>
+   176→
+   177→      <div className="grid gap-6 lg:grid-cols-5">
+   178→        {/* ------------------------------------------------------ picker pane */}
+   179→        <section aria-label="Story picker" className="min-w-0 space-y-4 lg:col-span-2">
+   180→          <PickerGroup
+   181→            title="Approved — ready to hand off"
+   182→            emptyText="No approved stories right now."
+   183→            items={approved}
+   184→            selectedId={selectedId}
+   185→            onSelect={setSelectedId}
+   186→          />
+   187→          <PickerGroup
+   188→            title="Still in the workflow"
+   189→            emptyText=""
+   190→            items={others}
+   191→            selectedId={selectedId}
+   192→            onSelect={setSelectedId}
+   193→          />
+   194→          <PickerGroup
+   195→            title="Already published"
+   196→            emptyText=""
+   197→            items={publishedList}
+   198→            selectedId={selectedId}
+   199→            onSelect={setSelectedId}
+   200→          />
+   201→
+   202→          {/* history */}
+   203→          <div className="rounded-lg border bg-card">
+   204→            <h3 className="border-b px-4 py-3 text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+   205→              Recent handoffs ({handoffs.length})
+   206→            </h3>
+   207→            {handoffs.length === 0 ? (
+   208→              <p className="px-4 py-6 text-sm text-muted-foreground">
+   209→                No handoffs yet. Completed deliveries appear here.
+   210→              </p>
+   211→            ) : (
+   212→              <ul className="scrollbar-slim max-h-64 divide-y overflow-y-auto">
+   213→                {handoffs.map((h) => (
+   214→                  <HandoffHistoryItem key={h.id} handoff={h} />
+   215→                ))}
+   216→              </ul>
+   217→            )}
+   218→          </div>
+   219→        </section>
+   220→
+   221→        {/* ---------------------------------------------------- workflow pane */}
+   222→        <section aria-label="Handoff workflow" className="min-w-0 lg:col-span-3">
+   223→          {!story ? (
+   224→            <div className="flex h-64 flex-col items-center justify-center gap-2 rounded-lg border border-dashed bg-card/50">
+   225→              <Send className="h-8 w-8 text-muted-foreground/50" />
+   226→              <p className="text-sm text-muted-foreground">
+   227→                Select a story to validate and hand off.
+   228→              </p>
+   229→            </div>
+   230→          ) : (
+   231→            <div className="space-y-4">
+   232→              {/* selected story header */}
+   233→              <div className="rounded-lg border bg-card p-5">
+   234→                <div className="flex flex-wrap items-center gap-2">
+   235→                  <StatusBadge status={story.status} />
+   236→                  <Badge variant="outline" className="text-xs">
+   237→                    {story.desk} desk
+   238→                  </Badge>
+   239→                  {story.media.some((m) => m.media.rights.status === "EXPIRED") && (
+   240→                    <Badge variant="outline" className="gap-1 border-red-300 bg-red-50 text-red-700 dark:border-red-800 dark:bg-red-950/50 dark:text-red-300">
+   241→                      <AlertTriangle className="h-3 w-3" /> expired media attached
+   242→                    </Badge>
+   243→                  )}
+   244→                </div>
+   245→                <h3 className="mt-2 font-headline text-xl font-bold leading-snug">
+   246→                  {story.title}
+   247→                </h3>
+   248→                <p className="mt-1 text-xs text-muted-foreground">
+   249→                  {story.media.length} media asset(s) · {story.wordCount} words · editor:{" "}
+   250→                  {story.assignee ?? "unassigned"}
+   251→                </p>
+   252→              </div>
+   253→
+   254→              {/* step 1 — validate */}
+   255→              <StepCard
+   256→                step={1}
+   257→                title="Validate publication requirements"
+   258→                subtitle="Editorial status, assignment, copy quality and media rights."
+   259→                done={!!validation && validation.valid}
+   260→                blocked={!!validation && !validation.valid}
+   261→              >
+   262→                <div className="flex items-center gap-3">
+   263→                  <Button
+   264→                    size="sm"
+   265→                    variant="outline"
+   266→                    onClick={() => void runValidation(story.id)}
+   267→                    disabled={validating}
+   268→                  >
+   269→                    {validating ? (
+   270→                      <>
+   271→                        <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> Validating…
+   272→                      </>
+   273→                    ) : (
+   274→                      <>
+   275→                        <ShieldCheck className="mr-1.5 h-3.5 w-3.5" /> Re-run Validation
+   276→                      </>
+   277→                    )}
+   278→                  </Button>
+   279→                  {validation && (
+   280→                    <span
+   281→                      className={cn(
+   282→                        "text-sm font-medium",
+   283→                        validation.valid ? "text-emerald-700 dark:text-emerald-400" : "text-red-700 dark:text-red-400"
+   284→                      )}
+   285→                    >
+   286→                      {validation.valid
+   287→                        ? "All checks passed"
+   288→                        : `${validation.failedCheckIds.length} blocker(s) found`}
+   289→                    </span>
+   290→                  )}
+   291→                </div>
+   292→
+   293→                {validation && (
+   294→                  <ul className="mt-3 space-y-2">
+   295→                    {validation.checks.map((c) => (
+   296→                      <li
+   297→                        key={c.id}
+   298→                        className={cn(
+   299→                          "flex items-start gap-2.5 rounded-md border p-2.5 text-sm",
+   300→                          c.status === "pass"
+   301→                            ? "border-emerald-200 bg-emerald-50/60 dark:border-emerald-800/60 dark:bg-emerald-950/30"
+   302→                            : "border-red-200 bg-red-50/60 dark:border-red-800/60 dark:bg-red-950/30"
+   303→                        )}
+   304→                      >
+   305→                        {c.status === "pass" ? (
+   306→                          <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600 dark:text-emerald-400" />
+   307→                        ) : (
+   308→                          <XCircle className="mt-0.5 h-4 w-4 shrink-0 text-red-600 dark:text-red-400" />
+   309→                        )}
+   310→                        <div>
+   311→                          <p className="font-medium leading-tight">{c.label}</p>
+   312→                          <p
+   313→                            className={cn(
+   314→                              "mt-0.5 text-xs",
+   315→                              c.status === "pass" ? "text-emerald-800/80 dark:text-emerald-300/80" : "text-red-800 dark:text-red-300"
+   316→                            )}
+   317→                          >
+   318→                            {c.detail}
+   319→                          </p>
+   320→                        </div>
+   321→                      </li>
+   322→                    ))}
+   323→                  </ul>
+   324→                )}
+   325→
+   326→                {validation &&
+   327→                  !validation.valid &&
+   328→                  validation.failedCheckIds.includes("media-rights") && (
+   329→                    <div className="mt-3 flex flex-wrap items-center gap-2 rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-950/50 dark:text-amber-200">
+   330→                      <Images className="h-4 w-4 shrink-0" />
+   331→                      <span>Expired assets must be replaced with cleared images.</span>
+   332→                      <div className="ml-auto flex gap-1.5">
+   333→                        {expiredMediaId && story.status !== "PUBLISHED" && (
+   334→                          <Button
+   335→                            size="sm"
+   336→                            className="h-7 gap-1"
+   337→                            onClick={() => setReplaceMediaId(expiredMediaId)}
+   338→                          >
+   339→                            <ArrowRightLeft className="h-3 w-3" /> Replace expired media
+   340→                          </Button>
+   341→                        )}
+   342→                        <Button
+   343→                          size="sm"
+   344→                          variant="outline"
+   345→                          className="h-7"
+   346→                          onClick={onOpenVault}
+   347→                        >
+   348→                          Open Media Vault
+   349→                          <ChevronRight className="ml-1 h-3.5 w-3.5" />
+   350→                        </Button>
+   351→                      </div>
+   352→                    </div>
+   353→                  )}
+   354→              </StepCard>
+   355→
+   356→              {/* step 2 — prepare payload */}
+   357→              <StepCard
+   358→                step={2}
+   359→                title="Generate the web publishing payload"
+   360→                subtitle="A structured JSON payload for the CMS, including media credits."
+   361→                done={!!payload}
+   362→                blocked={!validation?.valid}
+   363→              >
+   364→                <div className="flex flex-wrap items-center gap-3">
+   365→                  <Button
+   366→                    size="sm"
+   367→                    variant="outline"
+   368→                    onClick={doPrepare}
+   369→                    disabled={!validation?.valid || validating || preparing || !!payload}
+   370→                  >
+   371→                    {preparing ? (
+   372→                      <>
+   373→                        <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> Building…
+   374→                      </>
+   375→                    ) : (
+   376→                      <>
+   377→                        <FileJson className="mr-1.5 h-3.5 w-3.5" /> Generate Payload
+   378→                      </>
+   379→                    )}
+   380→                  </Button>
+   381→                  {!validation?.valid && (
+   382→                    <span className="text-xs text-muted-foreground">
+   383→                      Resolve the blockers above to enable payload generation.
+   384→                    </span>
+   385→                  )}
+   386→                </div>
+   387→
+   388→                {payload && (
+   389→                  <div className="mt-3 space-y-2">
+   390→                    <div className="flex flex-wrap items-center gap-2">
+   391→                      <Badge variant="outline" className="font-mono text-[11px]">
+   392→                        {payload.handoffRef}
+   393→                      </Badge>
+   394→                      <Badge variant="outline" className="text-[11px]">
+   395→                        target: {payload.delivery.target}
+   396→                      </Badge>
+   397→                      <Badge variant="outline" className="text-[11px]">
+   398→                        {payload.media.length} media asset(s)
+   399→                      </Badge>
+   400→                      <Badge variant="outline" className="text-[11px]">
+   401→                        {payload.story.wordCount} words
+   402→                      </Badge>
+   403→                      <Button
+   404→                        size="sm"
+   405→                        variant="ghost"
+   406→                        className="ml-auto h-7 gap-1 text-xs"
+   407→                        onClick={() => {
+   408→                          void navigator.clipboard
+   409→                            .writeText(JSON.stringify(payload, null, 2))
+   410→                            .then(() => toast({ title: "Payload copied to clipboard" }));
+   411→                        }}
+   412→                      >
+   413→                        <ClipboardCopy className="h-3.5 w-3.5" /> Copy JSON
+   414→                      </Button>
+   415→                      <Button
+   416→                        size="sm"
+   417→                        variant="ghost"
+   418→                        className="h-7 gap-1 text-xs"
+   419→                        title="Download the payload as a .json file"
+   420→                        onClick={() => {
+   421→                          const blob = new Blob([JSON.stringify(payload, null, 2)], {
+   422→                            type: "application/json",
+   423→                          });
+   424→                          const url = URL.createObjectURL(blob);
+   425→                          const a = document.createElement("a");
+   426→                          a.href = url;
+   427→                          a.download = `${payload.handoffRef}.json`;
+   428→                          document.body.appendChild(a);
+   429→                          a.click();
+   430→                          a.remove();
+   431→                          URL.revokeObjectURL(url);
+   432→                          toast({ title: `Payload ${payload.handoffRef} downloaded` });
+   433→                        }}
+   434→                      >
+   435→                        <Download className="h-3.5 w-3.5" /> Download
+   436→                      </Button>
+   437→                    </div>
+   438→                    <pre
+   439→                      className="payload-json scrollbar-slim max-h-80 overflow-auto rounded-lg border bg-stone-950 p-4 text-stone-100"
+   440→                      dangerouslySetInnerHTML={{
+   441→                        __html: highlightJson(JSON.stringify(payload, null, 2)),
+   442→                      }}
+   443→                    />
+   444→                  </div>
+   445→                )}
+   446→              </StepCard>
+   447→
+   448→              {/* step 3 — execute */}
+   449→              <StepCard
+   450→                step={3}
+   451→                title="Execute the web handoff"
+   452→                subtitle="Re-validates server-side, delivers the payload and publishes the story."
+   453→                done={result?.ok === true}
+   454→                blocked={result !== null && !result.ok}
+   455→              >
+   456→                <div className="flex flex-wrap items-center gap-3">
+   457→                  <Button
+   458→                    size="sm"
+   459→                    onClick={() => setConfirmOpen(true)}
+   460→                    disabled={!payload || executing}
+   461→                  >
+   462→                    {executing ? (
+   463→                      <>
+   464→                        <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> Handing off…
+   465→                      </>
+   466→                    ) : (
+   467→                      <>
+   468→                        <Rocket className="mr-1.5 h-3.5 w-3.5" /> Execute Handoff
+   469→                      </>
+   470→                    )}
+   471→                  </Button>
+   472→                  {!payload && (
+   473→                    <span className="text-xs text-muted-foreground">
+   474→                      Generate and review the payload first.
+   475→                    </span>
+   476→                  )}
+   477→                </div>
+   478→
+   479→                {result && (
+   480→                  <div
+   481→                    className={cn(
+   482→                      "mt-3 rounded-lg border p-4",
+   483→                      result.ok
+   484→                        ? "border-emerald-300 bg-emerald-50 dark:border-emerald-800 dark:bg-emerald-950/40"
+   485→                        : "border-red-300 bg-red-50 dark:border-red-800 dark:bg-red-950/40"
+   486→                    )}
+   487→                  >
+   488→                    <div className="flex items-center gap-2">
+   489→                      {result.ok ? (
+   490→                        <CheckCircle2 className="h-5 w-5 text-emerald-600 dark:text-emerald-400" />
+   491→                      ) : (
+   492→                        <AlertTriangle className="h-5 w-5 text-red-600 dark:text-red-400" />
+   493→                      )}
+   494→                      <p
+   495→                        className={cn(
+   496→                          "font-semibold",
+   497→                          result.ok ? "text-emerald-800 dark:text-emerald-300" : "text-red-800 dark:text-red-300"
+   498→                        )}
+   499→                      >
+   500→                        {result.ok ? `Handoff complete — ${result.handoffRef}` : "Handoff blocked"}
+   501→                      </p>
+   502→                    </div>
+   503→                    <p className="mt-1 text-sm text-stone-700 dark:text-stone-300">{result.message}</p>
+   504→                    {result.ok && (
+   505→                      <dl className="mt-2 grid gap-x-6 gap-y-1 text-xs sm:grid-cols-2">
+   506→                        <div>
+   507→                          <dt className="inline text-muted-foreground">Delivered: </dt>
+   508→                          <dd className="inline font-medium">{fmtDateTime(result.deliveredAt)}</dd>
+   509→                        </div>
+   510→                        <div className="truncate">
+   511→                          <dt className="inline text-muted-foreground">Preview: </dt>
+   512→                          <dd className="inline font-mono text-[11px]">{result.previewUrl}</dd>
+   513→                        </div>
+   514→                      </dl>
+   515→                    )}
+   516→                  </div>
+   517→                )}
+   518→              </StepCard>
+   519→            </div>
+   520→          )}
+   521→        </section>
+   522→      </div>
+   523→
+   524→      {/* replace dialog — re-validate on success */}
+   525→      {replaceMediaId && story && (
+   526→        <ReplaceMediaDialog
+   527→          story={story}
+   528→          mediaId={replaceMediaId}
+   529→          open={replaceMediaId !== null}
+   530→          onOpenChange={(v) => {
+   531→            if (!v) setReplaceMediaId(null);
+   532→          }}
+   533→          onReplaced={() => {
+   534→            setPayload(null);
+   535→            setResult(null);
+   536→            if (selectedId) void runValidation(selectedId);
+   537→          }}
+   538→        />
+   539→      )}
+   540→
+   541→      {/* confirm dialog */}
+   542→      <AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>
+   543→        <AlertDialogContent>
+   544→          <AlertDialogHeader>
+   545→            <AlertDialogTitle className="font-headline">
+   546→              Execute web handoff?
+   547→            </AlertDialogTitle>
+   548→            <AlertDialogDescription>
+   549→              The payload <span className="font-mono text-xs">{payload?.handoffRef}</span> will be
+   550→              delivered to the web CMS and <strong>{story?.title}</strong> will be marked Published.
+   551→              This is a simulated delivery — no external system is called.
+   552→            </AlertDialogDescription>
+   553→          </AlertDialogHeader>
+   554→          <AlertDialogFooter>
+   555→            <AlertDialogCancel>Cancel</AlertDialogCancel>
+   556→            <AlertDialogAction onClick={doExecute}>Execute Handoff</AlertDialogAction>
+   557→          </AlertDialogFooter>
+   558→        </AlertDialogContent>
+   559→      </AlertDialog>
+   560→    </div>
+   561→  );
+   562→}
+   563→
+   564→// ---------------------------------------------------------------------------
+   565→// Picker group
+   566→// ---------------------------------------------------------------------------
+   567→
+   568→function PickerGroup({
+   569→  title,
+   570→  items,
+   571→  selectedId,
+   572→  onSelect,
+   573→  emptyText,
+   574→}: {
+   575→  title: string;
+   576→  items: Array<{ id: string; title: string; status: string; desk: string }>;
+   577→  selectedId: string | null;
+   578→  onSelect: (id: string) => void;
+   579→  emptyText: string;
+   580→}) {
+   581→  if (items.length === 0) {
+   582→    return emptyText ? (
+   583→      <div className="rounded-lg border bg-card p-4">
+   584→        <h3 className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+   585→          {title}
+   586→        </h3>
+   587→        <p className="mt-2 text-sm text-muted-foreground">{emptyText}</p>
+   588→      </div>
+   589→    ) : null;
+   590→  }
+   591→  return (
+   592→    <div className="rounded-lg border bg-card">
+   593→      <h3 className="border-b px-4 py-3 text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+   594→        {title} ({items.length})
+   595→      </h3>
+   596→      <ul className="divide-y">
+   597→        {items.map((s) => (
+   598→          <li key={s.id}>
+   599→            <button
+   600→              onClick={() => onSelect(s.id)}
+   601→              className={cn(
+   602→                "flex w-full items-center gap-3 px-4 py-2.5 text-left transition-colors",
+   603→                selectedId === s.id ? "bg-primary/5" : "hover:bg-muted/50"
+   604→              )}
+   605→            >
+   606→              <ChevronRight
+   607→                className={cn(
+   608→                  "h-4 w-4 shrink-0",
+   609→                  selectedId === s.id ? "text-primary" : "text-transparent"
+   610→                )}
+   611→              />
+   612→              <span className="min-w-0 flex-1">
+   613→                <span className="line-clamp-1 font-headline text-sm font-semibold">
+   614→                  {s.title}
+   615→                </span>
+   616→                <span className="text-xs text-muted-foreground">{s.desk} desk</span>
+   617→              </span>
+   618→              <StatusBadge status={s.status} />
+   619→            </button>
+   620→          </li>
+   621→        ))}
+   622→      </ul>
+   623→    </div>
+   624→  );
+   625→}
+   626→
+   627→// ---------------------------------------------------------------------------
+   628→// Step card
+   629→// ---------------------------------------------------------------------------
+   630→
+   631→function StepCard({
+   632→  step,
+   633→  title,
+   634→  subtitle,
+   635→  done,
+   636→  blocked,
+   637→  children,
+   638→}: {
+   639→  step: number;
+   640→  title: string;
+   641→  subtitle: string;
+   642→  done?: boolean;
+   643→  blocked?: boolean;
+   644→  children: React.ReactNode;
+   645→}) {
+   646→  return (
+   647→    <div
+   648→      className={cn(
+   649→        "rounded-lg border bg-card p-5",
+   650→        blocked && "opacity-95"
+   651→      )}
+   652→    >
+   653→      <div className="mb-3 flex items-start gap-3">
+   654→        <span
+   655→          className={cn(
+   656→            "flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs font-bold",
+   657→            done
+   658→              ? "bg-emerald-600 text-white"
+   659→              : blocked
+   660→                ? "bg-red-100 text-red-700 dark:bg-red-950/60 dark:text-red-300"
+   661→                : "bg-stone-900 text-white dark:bg-stone-100 dark:text-stone-900"
+   662→          )}
+   663→        >
+   664→          {done ? <Check className="h-4 w-4" /> : step}
+   665→        </span>
+   666→        <div>
+   667→          <h3 className="font-headline text-base font-bold leading-tight">{title}</h3>
+   668→          <p className="text-xs text-muted-foreground">{subtitle}</p>
+   669→        </div>
+   670→      </div>
+   671→      {children}
+   672→    </div>
+   673→  );
+   674→}
+   675→
+   676→// ---------------------------------------------------------------------------
+   677→// History item
+   678→// ---------------------------------------------------------------------------
+   679→
+   680→function HandoffHistoryItem({ handoff }: { handoff: HandoffDTO }) {
+   681→  const [open, setOpen] = useState(false);
+   682→  return (
+   683→    <li className="px-4 py-2.5">
+   684→      <button
+   685→        className="flex w-full items-center gap-2 text-left"
+   686→        onClick={() => setOpen((v) => !v)}
+   687→        aria-expanded={open}
+   688→      >
+   689→        <Badge
+   690→          variant="outline"
+   691→          className={cn(
+   692→            "shrink-0 font-mono text-[10px]",
+   693→            handoff.status === "SUCCESS"
+   694→              ? "border-emerald-300 bg-emerald-50 text-emerald-800 dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300"
+   695→              : "border-red-300 bg-red-50 text-red-700 dark:border-red-800 dark:bg-red-950/40 dark:text-red-300"
+   696→          )}
+   697→        >
+   698→          {handoff.handoffRef}
+   699→        </Badge>
+   700→        <span className="min-w-0 flex-1 truncate text-xs font-medium">{handoff.storyTitle}</span>
+   701→        <span className="shrink-0 text-[11px] text-muted-foreground">
+   702→          {fmtRelative(handoff.createdAt)}
+   703→        </span>
+   704→      </button>
+   705→      {open && (
+   706→        <pre className="payload-json scrollbar-slim mt-2 max-h-48 overflow-auto rounded-md border bg-stone-950 p-3 text-stone-100">
+   707→          {JSON.stringify(handoff.payload, null, 2)}
+   708→        </pre>
+   709→      )}
+   710→    </li>
+   711→  );
+   712→}
+   713→
+   714→// ---------------------------------------------------------------------------
+   715→// Tiny JSON syntax highlighter
+   716→// ---------------------------------------------------------------------------
+   717→
+   718→function highlightJson(json: string): string {
+   719→  const esc = json
+   720→    .replace(/&/g, "&amp;")
+   721→    .replace(/</g, "&lt;")
+   722→    .replace(/>/g, "&gt;");
+   723→  return esc.replace(
+   724→    /("(\\u[a-fA-F0-9]{4}|\\[^u]|[^\\"])*"(\s*:)?|\b(true|false)\b|\bnull\b|-?\d+(?:\.\d*)?(?:[eE][+-]?\d+)?)/g,
+   725→    (match) => {
+   726→      let cls = "num";
+   727→      if (match.startsWith('"')) cls = match.trimEnd().endsWith(":") ? "key" : "str";
+   728→      else if (match === "true" || match === "false") cls = "bool";
+   729→      else if (match === "null") cls = "null";
+   730→      return `<span class="${cls}">${match}</span>`;
+   731→    }
+   732→  );
+   733→}
+   734→
